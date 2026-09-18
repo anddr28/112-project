@@ -1,0 +1,163 @@
+# ============================================================================
+# go-core — внутренний callback-API. Сервер: go-core. Клиент: ai-service.
+#
+# Правила:
+#   * ровно ОДНО поле результата (grammar|semantic|scenario|tts) при status=ok,
+#     соответствующее type; при status=failed — поле error
+#   * go-core идемпотентен: callback по задаче, которая уже done
+#     (дубль после переотправки) -> 200 и молча игнорируется
+#   * при валидном токене и парсабельном теле ответ ВСЕГДА 200 — чтобы
+#     ai-service не ретраил зря; 400 только на мусор, 401 на неверный токен
+#   * ai-service ретраит недоставленный callback: 3 попытки, backoff 1/5/30 c;
+#     после — результат отбрасывается (задачу вернёт reaper go-core,
+#     LLM посчитает повторно — осознанная цена stateless-Python)
+#
+# Обработка go-core по status=ok:
+#   evaluate_grammar   -> evaluations.grammar_score, grammar_remarks, engine
+#   evaluate_semantic  -> evaluations.semantic_score, semantic, engine;
+#                         confidence < порога -> флаг "требует ревью"
+#   после каждого слоя -> пересчёт total_score по весам занятия;
+#                         все слои на месте -> status=done, verdict, XP
+#   generate_scenario  -> scenarios (status=generated) + etalons v1 -> на валидацию
+#   tts                -> tts_cache (файл уже в shared volume)
+# По status=failed:
+#   error.retryable=true  -> ai_jobs.try_count++, backoff; исчерпан -> failed
+#   error.retryable=false -> ai_jobs.failed сразу; для оценок — пометка
+#                            "AI-слой недоступен, требуется ревью преподавателя"
+# ============================================================================
+openapi: 3.0.3
+info:
+  title: LCT go-core — internal callbacks
+  version: "1.0"
+servers:
+  - url: http://go-core:8080
+security:
+  - InternalToken: []
+
+paths:
+  /internal/ai/v1/results:
+    post:
+      operationId: postAiResult
+      summary: Приём результата AI-задачи
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiResult'
+            examples:
+              semantic_ok:
+                value:
+                  schema_version: "1"
+                  request_id: "018f6b2a-7c1e-7f00-a000-000000000001"
+                  attempt_id: "018f6b2a-7c1e-7f00-b000-000000000002"
+                  type: evaluate_semantic
+                  status: ok
+                  engine:
+                    llm_model: "qwen2.5:3b-instruct-q4_K_M"
+                    prompt_version: "sem-v3"
+                    duration_ms: 9400
+                    queue_wait_ms: 121000
+                    tokens_in: 1240
+                    tokens_out: 210
+                  semantic:
+                    score: 72
+                    confidence: 0.83
+                    missing_facts: ["не зафиксировано, что в квартире может находиться человек"]
+                    extra_facts: []
+                    per_field:
+                      - {field: description, score: 70, comment: "Суть передана, потерян ключевой факт о человеке в квартире"}
+                    summary_for_student: "Адрес и характер происшествия записаны верно. Упущен важнейший факт: в квартире может быть человек."
+              semantic_failed:
+                value:
+                  schema_version: "1"
+                  request_id: "018f6b2a-7c1e-7f00-a000-000000000003"
+                  attempt_id: "018f6b2a-7c1e-7f00-b000-000000000004"
+                  type: evaluate_semantic
+                  status: failed
+                  engine: {llm_model: "qwen2.5:3b-instruct-q4_K_M", duration_ms: 120000}
+                  error:
+                    code: llm_timeout
+                    message: "generation exceeded 120s"
+                    retryable: true
+      responses:
+        '200':
+          description: Принято (в т.ч. дубликат — принят и проигнорирован)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted]
+                properties:
+                  accepted: {type: boolean}
+                  duplicate: {type: boolean, description: задача уже была закрыта}
+        '400':
+          description: Непарсабельное тело / нарушение инвариантов конверта
+          content:
+            application/json:
+              schema:
+                $ref: '_components.yaml#/components/schemas/ApiError'
+        '401':
+          description: Неверный X-Internal-Token
+          content:
+            application/json:
+              schema:
+                $ref: '_components.yaml#/components/schemas/ApiError'
+
+components:
+  securitySchemes:
+    InternalToken:
+      $ref: '_components.yaml#/components/securitySchemes/InternalToken'
+
+  schemas:
+    AiResult:
+      type: object
+      required: [schema_version, request_id, type, status, engine]
+      properties:
+        schema_version:
+          $ref: '_components.yaml#/components/schemas/SchemaVersion'
+        request_id:
+          type: string
+          format: uuid
+          description: '= ai_jobs.id из исходной задачи'
+        attempt_id:
+          type: string
+          format: uuid
+          description: есть у evaluate_*; отсутствует у generate/tts
+        type:
+          $ref: '_components.yaml#/components/schemas/JobType'
+        status:
+          type: string
+          enum: [ok, failed]
+        error:
+          $ref: '#/components/schemas/AiJobError'
+        engine:
+          $ref: '_components.yaml#/components/schemas/Engine'
+        grammar:
+          $ref: '_components.yaml#/components/schemas/GrammarResult'
+        semantic:
+          $ref: '_components.yaml#/components/schemas/SemanticResult'
+        scenario:
+          $ref: '_components.yaml#/components/schemas/ScenarioResult'
+        tts:
+          $ref: '_components.yaml#/components/schemas/TtsResult'
+
+    AiJobError:
+      type: object
+      required: [code, message, retryable]
+      properties:
+        code:
+          type: string
+          enum:
+            - llm_timeout          # инференс не уложился в лимит          (retryable)
+            - llm_invalid_output   # LLM вернула невалидный JSON после N починок (retryable 1 раз)
+            - model_unavailable    # модель не загружена / Ollama лежит     (retryable)
+            - lt_unavailable       # LanguageTool недоступен                (retryable)
+            - tts_failed           # Silero упал на тексте                  (retryable)
+            - bad_payload          # payload не прошёл валидацию            (NOT retryable)
+            - internal             # прочее                                 (retryable)
+        message: {type: string}
+        retryable: {type: boolean}
+        details:
+          type: object
+          additionalProperties: true

@@ -1,0 +1,7 @@
+# Линт контрактов: npx @redocly/cli lint contracts/openapi/_components.yaml contracts/openapi/ai-service.v1.yaml contracts/openapi/go-internal.v1.yaml
+extends:
+  - recommended
+rules:
+  info-license: off        # внутренний API, лицензия не нужна
+  security-defined: off    # /v1/health намеренно без токена (docker healthcheck)
+  no-empty-servers: off    # _components.yaml — библиотека схем, серверов не имеет

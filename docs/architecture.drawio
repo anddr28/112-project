@@ -1,0 +1,350 @@
+<mxfile host="Electron" agent="claude">
+  <diagram name="Архитектура" id="arch-v01">
+    <mxGraphModel dx="1178" dy="864" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=20;fontColor=#1a1a1a;" value="Тренажёр оператора ДДС (эмуляция АРМ-112 / ПОВ-112) — архитектура прототипа · ЛЦТ 2026" vertex="1">
+          <mxGeometry height="30" width="1400" x="40" y="12" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#555555;" value="Учебное ПО для подготовки операторов ДДС Москвы с ИИ · Заказчик: Департамент ГОЧСиПБ / ГБУ «Система 112» · v0.1 — рабочий черновик команды, дорабатываем" vertex="1">
+          <mxGeometry height="20" width="1400" x="40" y="42" as="geometry" />
+        </mxCell>
+        <mxCell id="contour" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;strokeWidth=2;strokeColor=#b85450;fillColor=none;verticalAlign=top;align=right;spacingLeft=12;spacingTop=2;fontStyle=1;fontSize=13;fontColor=#b85450;arcSize=2;spacingRight=12;" value="ЛОКАЛЬНЫЙ КОНТУР УЧЕБНОГО ЦЕНТРА · изолированная сеть (Gigabit Ethernet) · без доступа в интернет · TLS внутри контура · никаких облачных API" vertex="1">
+          <mxGeometry height="1100" width="1940" x="40" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="clients" parent="1" style="swimlane;html=1;whiteSpace=wrap;startSize=34;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#f8cecc;strokeColor=#b85450;swimlaneFillColor=#fdf1f0;" value="КЛИЕНТЫ · браузер Chrome / Firefox / Яндекс · ПК i5 / 16 ГБ, планшет, мобильный (в ЛВС)" vertex="1">
+          <mxGeometry height="330" width="270" x="70" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="role_admin" parent="clients" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;Администратор&lt;/b&gt;&lt;br&gt;· пользователи, роли, блокировки&lt;br&gt;· конфиг, бэкапы, журналы, мониторинг сервисов&lt;br&gt;· &lt;i&gt;не вмешивается в оценки и сценарии&lt;/i&gt;" vertex="1">
+          <mxGeometry height="82" width="240" x="15" y="42" as="geometry" />
+        </mxCell>
+        <mxCell id="role_teacher" parent="clients" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;Преподаватель&lt;/b&gt;&lt;br&gt;· выбор категорий → генерация → валидация эталона&lt;br&gt;· группы, тайминг (30 с), критерии успешности&lt;br&gt;· старт / стоп занятия, live-мониторинг&lt;br&gt;· отчёты, комментарии, экспорт CSV / PDF" vertex="1">
+          <mxGeometry height="90" width="240" x="15" y="134" as="geometry" />
+        </mxCell>
+        <mxCell id="role_student" parent="clients" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;Обучающийся&lt;/b&gt;&lt;br&gt;· назначенные сценарии, приём звонка (TTS)&lt;br&gt;· заполнение карточки в клоне ПОВ-112&lt;br&gt;· действия с карточкой, таймер&lt;br&gt;· свои результаты и история ошибок" vertex="1">
+          <mxGeometry height="86" width="240" x="15" y="234" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend" parent="1" style="swimlane;html=1;whiteSpace=wrap;startSize=34;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#ffe6cc;strokeColor=#d79b00;swimlaneFillColor=#fff7ee;" value="FRONTEND · SPA (TypeScript) · клон интерфейса ПОВ-112 · русская локализация · адаптивный" vertex="1">
+          <mxGeometry height="340" width="270" x="70" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_grid" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Грид карточек происшествий (как в ПОВ-112)" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="42" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_form" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Опросная карта с признаками происшествия" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_notify" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Список оповещения служб ДДС" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="106" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_status" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Статусы реагирования" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="138" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_timer" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Таймер норматива (30 с) в интерфейсе" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_call" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Имитация звонка: аудио TTS + текст реплик" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="202" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_cabinets" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="Кабинеты: админ / преподаватель / ученик" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="234" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_ws" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="WebSocket-клиент (мониторинг, reconnect ≤ 30 с)" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="266" as="geometry" />
+        </mxCell>
+        <mxCell id="fe_rest" parent="frontend" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=10;fillColor=#ffffff;strokeColor=#d79b00;" value="REST-клиент JSON · типы из shared contracts" vertex="1">
+          <mxGeometry height="26" width="240" x="15" y="298" as="geometry" />
+        </mxCell>
+        <mxCell id="compose_list" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;docker-compose · 6 сервисов&lt;/b&gt;&lt;br&gt;nginx · go-core · ai-service · postgres · ollama · languagetool&lt;br&gt;(+ whisper — опционально)&lt;br&gt;&lt;i&gt;сеть internal; наружу только nginx :443&lt;/i&gt;" vertex="1">
+          <mxGeometry height="120" width="180" x="430" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="nginx" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;" value="&lt;b&gt;NGINX · reverse proxy · :443&lt;/b&gt;&lt;br&gt;· TLS-терминация (self-signed CA контура), HTTP→HTTPS&lt;br&gt;· статика SPA (dist/)&lt;br&gt;· /api/* → go-core:8080&lt;br&gt;· /ws → WebSocket upgrade, keep-alive&lt;br&gt;· rate limiting, gzip, security-заголовки&lt;br&gt;· балансировка при горизонтальном масштабировании go-core" vertex="1">
+          <mxGeometry height="210" width="180" x="430" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="swimlane;html=1;startSize=30;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;" value="ЛЕГЕНДА" vertex="1">
+          <mxGeometry height="320" width="180" x="430" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="Клиенты / роли" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Frontend SPA (ПОВ-112)" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="NGINX / сеть / эксплуатация" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Go-core (модульный монолит)" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#fff2cc;strokeColor=#d6b656;" value="AI-service (Python / FastAPI)" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="lg6" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="Модели / инфраструктура" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="lg7" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="PostgreSQL 12+" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="lg8" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#b0e3e6;strokeColor=#0e8088;" value="Данные / seed / контракты" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="lg9" parent="legend" style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;dashed=1;" value="Опционально (по времени)" vertex="1">
+          <mxGeometry height="24" width="150" x="15" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="note_layers" parent="1" style="shape=note;size=14;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;fillColor=#fffde7;strokeColor=#d6b656;" value="&lt;b&gt;ПРОВЕРКА ОТВЕТА — 3 СЛОЯ + ТАЙМИНГ&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;1. Формализованные поля&lt;/b&gt; — go-core / grading, детерминированно: тип происшествия, признаки, адрес, пострадавшие, службы оповещения&lt;br&gt;&lt;br&gt;&lt;b&gt;2. Грамматика&lt;/b&gt; — LanguageTool (через ai-service): орфография, пунктуация, замечания с позициями&lt;br&gt;&lt;br&gt;&lt;b&gt;3. Свободный текст&lt;/b&gt; — LLM (Qwen 2.5) против эталона: балл 0–100 + замечания, пропущенные / лишние факты&lt;br&gt;&lt;br&gt;&lt;b&gt;+ Тайминг&lt;/b&gt; — время заполнения vs норматив (30 с по умолчанию, задаёт преподаватель)&lt;br&gt;&lt;br&gt;&lt;b&gt;Итог → evaluation_result:&lt;/b&gt; total_score, field_errors[], grammar_remarks[], semantic {score, remarks[]}, timing {spent, norm, delta}, verdict" vertex="1">
+          <mxGeometry height="300" width="255" x="70" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="note_req" parent="1" style="shape=note;size=14;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;fillColor=#fffde7;strokeColor=#d6b656;" value="&lt;b&gt;ТРЕБОВАНИЯ ТЗ (обязательные)&lt;/b&gt;&lt;br&gt;· RBAC: администратор / преподаватель / обучающийся&lt;br&gt;· изолированный контур, русский язык&lt;br&gt;· TLS внутри контура (nginx, self-signed CA)&lt;br&gt;· аудит всех действий, журналы ≥ 6 мес&lt;br&gt;· отклик ≤ 2 с при 100 пользователях&lt;br&gt;· ≥ 20 одновременных сессий&lt;br&gt;· сбой сети ≤ 30 с — восстановление без потерь&lt;br&gt;· бэкап ≥ 1 раз в сутки&lt;br&gt;· PostgreSQL 12+; Win 10/11, Ubuntu 20.04+&lt;br&gt;· Chrome / Firefox / Яндекс; адаптивность&lt;br&gt;· открытый код без обфускации; документация&lt;br&gt;&lt;br&gt;&lt;b&gt;ОГРАНИЧЕНИЯ ПРОТОТИПА&lt;/b&gt;&lt;br&gt;· SIP / VoIP не реализуется — звонок имитируется TTS в браузере (точка расширения: /tts → SIP-шлюз)&lt;br&gt;· LLM-диалог с заявителем и STT — опционально" vertex="1">
+          <mxGeometry height="300" width="270" x="340" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="compose" parent="1" style="swimlane;html=1;whiteSpace=wrap;startSize=34;rounded=1;arcSize=4;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#e6e6e6;strokeColor=#36393d;swimlaneFillColor=#ffffff;strokeWidth=2;" value="СЕРВЕР УЧЕБНОГО ЦЕНТРА · docker-compose · Ubuntu 20.04+ / Windows 10-11 (Docker Desktop) · i7 / Xeon ≥ 6 ядер · 32 ГБ · NVMe 512 ГБ · масштабирование вертикальное + горизонтальное (go-core за nginx)" vertex="1">
+          <mxGeometry height="1040" width="1250" x="700" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="go" parent="compose" style="swimlane;html=1;whiteSpace=wrap;startSize=32;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#dae8fc;strokeColor=#6c8ebf;swimlaneFillColor=#f2f7fd;strokeWidth=2;" value="GO-CORE · модульный монолит · :8080 · REST JSON + WebSocket · chi + pgx · пакеты по доменам (internal/...)" vertex="1">
+          <mxGeometry height="580" width="560" x="20" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_auth" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;auth&lt;/b&gt; · JWT (access / refresh), bcrypt, сессии, вход при каждом заходе, многоуровневая аутентификация, защита от перебора" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_rbac" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;rbac&lt;/b&gt; · роли admin / teacher / student, матрица прав по эндпоинтам; ограничения ТЗ (админ не меняет оценки, ученик не видит чужие результаты)" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_users" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;users&lt;/b&gt; · учётные записи, группы обучающихся, блокировка / разблокировка, профиль (JSON), локальный профиль результатов" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="114" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_classifier" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;classifier&lt;/b&gt; · классификатор происшествий (XLSX → JSON): категории, подкатегории, признаки, службы ДДС для оповещения; фильтр по профилю ученика" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="188" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_scenarios" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;scenarios&lt;/b&gt; · сценарий звонка + эталонная карточка; запрос генерации в AI; предпросмотр, коррекция комментарием, утверждение преподавателем; уровни сложности; версии" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="188" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_lessons" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;lessons&lt;/b&gt; · занятия и назначения группам; режимы «карточки» / «действия с карточками»; старт / стоп преподавателем; выдача случайной карточки" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="262" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_cards" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;cards&lt;/b&gt; · карточка происшествия по контракту incident_card; таймер (норматив 30 с, настраивается); автосохранение черновика; действия с карточкой (текст)" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="262" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_grading" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;grading&lt;/b&gt; · слой 1: детерминированная сверка полей с эталоном (тип, признаки, адрес, пострадавшие); сбор слоёв 2–3 из AI; время vs норматив; итоговый балл" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="336" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_reports" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;reports&lt;/b&gt; · отчёт по занятию / ученику / группе: баллы, ошибки по полям, грамматика, семантика, тайминг; экспорт CSV / PDF; статистика, тепловые карты ошибок" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="336" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_wshub" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;wshub&lt;/b&gt; · WebSocket-хаб: live-мониторинг преподавателя, таймер, статусы учеников; reconnect ≤ 30 с с восстановлением сессии; события по контракту ws_events" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_audit" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;audit&lt;/b&gt; · журнал аудита всех действий (кто / что / когда / IP); хранение ≥ 6 мес; правка оценок только с записью в аудит; выгрузка администратору" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_aiclient" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;aiclient&lt;/b&gt; · REST-клиент к ai-service: /generate, /evaluate/semantic, /evaluate/grammar, /tts; таймауты, retry, очередь ai_jobs, деградация при недоступном AI" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="114" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_backup" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;backup&lt;/b&gt; · pg_dump раз в сутки (планировщик внутри сервиса) → volume backups/, ротация, проверка целостности; восстановление по инструкции" vertex="1">
+          <mxGeometry height="66" width="260" x="15" y="484" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg_storage" parent="go" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;storage&lt;/b&gt; · pgx-пул, репозитории по доменам, транзакции; миграции goose; буферизация записи при кратковременном сбое БД (≤ 30 с)" vertex="1">
+          <mxGeometry height="66" width="260" x="285" y="484" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" parent="compose" style="swimlane;html=1;whiteSpace=wrap;startSize=32;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#f6f1f8;strokeWidth=2;" value="POSTGRESQL 12+ · :5432 · volume pg_data · ≥ 100 записей/с · TLS · единственное хранилище состояния" vertex="1">
+          <mxGeometry height="205" width="560" x="20" y="655" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="users" vertex="1">
+          <mxGeometry height="30" width="125" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="roles / permissions" vertex="1">
+          <mxGeometry height="30" width="125" x="150" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="groups / group_members" vertex="1">
+          <mxGeometry height="30" width="125" x="285" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="classifier" vertex="1">
+          <mxGeometry height="30" width="125" x="420" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="scenarios" vertex="1">
+          <mxGeometry height="30" width="125" x="15" y="76" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="etalons (JSONB)" vertex="1">
+          <mxGeometry height="30" width="125" x="150" y="76" as="geometry" />
+        </mxCell>
+        <mxCell id="t7" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="lessons" vertex="1">
+          <mxGeometry height="30" width="125" x="285" y="76" as="geometry" />
+        </mxCell>
+        <mxCell id="t8" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="lesson_sessions" vertex="1">
+          <mxGeometry height="30" width="125" x="420" y="76" as="geometry" />
+        </mxCell>
+        <mxCell id="t9" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="cards (JSONB)" vertex="1">
+          <mxGeometry height="30" width="125" x="15" y="112" as="geometry" />
+        </mxCell>
+        <mxCell id="t10" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="card_actions" vertex="1">
+          <mxGeometry height="30" width="125" x="150" y="112" as="geometry" />
+        </mxCell>
+        <mxCell id="t11" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="results (JSONB)" vertex="1">
+          <mxGeometry height="30" width="125" x="285" y="112" as="geometry" />
+        </mxCell>
+        <mxCell id="t12" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="audit_log" vertex="1">
+          <mxGeometry height="30" width="125" x="420" y="112" as="geometry" />
+        </mxCell>
+        <mxCell id="t13" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="ai_jobs" vertex="1">
+          <mxGeometry height="30" width="125" x="15" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="t14" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="backups_log" vertex="1">
+          <mxGeometry height="30" width="125" x="150" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="t15" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="settings (норматив, пороги)" vertex="1">
+          <mxGeometry height="30" width="125" x="285" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="t16" parent="postgres" style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;fillColor=#ffffff;strokeColor=#9673a6;" value="teacher_feedback" vertex="1">
+          <mxGeometry height="30" width="125" x="420" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="contracts" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;fillColor=#b0e3e6;strokeColor=#0e8088;strokeWidth=2;" value="&lt;b&gt;SHARED CONTRACTS · docs/contracts/ · JSON Schema — единый источник правды для Go / Python / Frontend&lt;/b&gt;&lt;br&gt;incident_card.schema.json · etalon.schema.json · scenario.schema.json · evaluation_result.schema.json · ws_events.schema.json · classifier.schema.json&lt;br&gt;→ генерация типов: Go structs · pydantic-модели · TypeScript · валидация на границах сервисов · версионирование (schema_version)" vertex="1">
+          <mxGeometry height="130" width="560" x="20" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="ai" parent="compose" style="swimlane;html=1;whiteSpace=wrap;startSize=32;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#fffbee;strokeWidth=2;" value="AI-SERVICE · Python 3.11 · FastAPI · :8000 · внутренний REST JSON (вызывается только из go-core) · без выхода в интернет" vertex="1">
+          <mxGeometry height="310" width="570" x="660" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_generate" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;" value="&lt;b&gt;POST /generate/scenario&lt;/b&gt; · вход: категории классификатора, сложность, кол-во · выход: сценарий звонка (реплики заявителя, ФИО, телефон, адрес) + эталонная карточка · Qwen 2.5, JSON-schema, few-shot из билетов" vertex="1">
+          <mxGeometry height="72" width="265" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_semantic" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;" value="&lt;b&gt;POST /evaluate/semantic&lt;/b&gt; · свободный текст ученика vs эталон → {score 0–100, remarks[], missing_facts[], extra_facts[]} · LLM-судья, temperature 0, строгий JSON, повтор при невалидном ответе" vertex="1">
+          <mxGeometry height="72" width="265" x="290" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_grammar" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;" value="&lt;b&gt;POST /evaluate/grammar&lt;/b&gt; · орфография / пунктуация / стиль через LanguageTool → замечания с позициями и подсказками · нормализация в контракт evaluation_result" vertex="1">
+          <mxGeometry height="72" width="265" x="15" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_tts" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;" value="&lt;b&gt;POST /tts&lt;/b&gt; · озвучка реплик заявителя: Silero v4 (ru, несколько голосов), WAV / MP3, паузы · кэш по хэшу текста · имитация звонка без SIP (аудио отдаётся через go-core)" vertex="1">
+          <mxGeometry height="72" width="265" x="290" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_prompts" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;" value="&lt;b&gt;prompts/ · schemas/ · tests/&lt;/b&gt; · версионируемые промпты, pydantic-модели контрактов, регрессионные тесты QA на билетах (норм / не норм), тюнинг температуры и few-shot; /healthz" vertex="1">
+          <mxGeometry height="72" width="265" x="15" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_optional" parent="ai" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#d6b656;dashed=1;" value="&lt;b&gt;ОПЦИОНАЛЬНО&lt;/b&gt; · POST /dialog — заявитель от лица LLM (multi-turn, память сценария, роль «паникующий / спокойный») · POST /stt — Whisper small (ru) для голосового ответа оператора" vertex="1">
+          <mxGeometry height="72" width="265" x="290" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ollama" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;" value="&lt;b&gt;OLLAMA · :11434&lt;/b&gt;&lt;br&gt;· Qwen 2.5 7B-instruct (dev) / 14B q4 (прод) · русский&lt;br&gt;· CPU или GPU, num_ctx под сценарий&lt;br&gt;· volume ollama_models; модель кладётся в образ / загружается офлайн&lt;br&gt;· format=json для строгих ответов" vertex="1">
+          <mxGeometry height="115" width="275" x="660" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="languagetool" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;" value="&lt;b&gt;LANGUAGETOOL · :8010&lt;/b&gt;&lt;br&gt;· self-hosted (Java), язык ru-RU&lt;br&gt;· опционально n-gram-данные для контекстных ошибок&lt;br&gt;· без внешних запросов, healthcheck&lt;br&gt;· API /v2/check" vertex="1">
+          <mxGeometry height="115" width="275" x="955" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="whisper" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;" value="&lt;b&gt;WHISPER small (опционально)&lt;/b&gt; · STT ru · CPU · для голосового ответа ученика · отдельный контейнер или внутри ai-service" vertex="1">
+          <mxGeometry height="60" width="275" x="660" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="silero" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;SILERO TTS v4 (ru)&lt;/b&gt; · библиотека внутри ai-service (torch CPU) · ~0,3 с / фраза · веса в образе · кэш tts_cache" vertex="1">
+          <mxGeometry height="60" width="275" x="955" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="volumes" parent="compose" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;" value="&lt;b&gt;VOLUMES &amp;amp; ЭКСПЛУАТАЦИЯ&lt;/b&gt;&lt;br&gt;· pg_data · ollama_models · backups · tts_cache · logs (JSON, хранение ≥ 6 мес)&lt;br&gt;· healthcheck + restart: always у всех сервисов · /healthz для мониторинга администратора&lt;br&gt;· конфиг через .env · самоподписанный CA контура (скрипт генерации) · документированные процедуры установки и восстановления" vertex="1">
+          <mxGeometry height="110" width="570" x="660" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="data" parent="compose" style="swimlane;html=1;whiteSpace=wrap;startSize=32;rounded=1;arcSize=6;fontStyle=1;fontSize=11;collapsible=0;container=1;fillColor=#b0e3e6;strokeColor=#0e8088;swimlaneFillColor=#eefafa;strokeWidth=2;" value="ИМПОРТ ДАННЫХ ОРГАНИЗАТОРОВ (seed) · scripts/ на Python · QA + питонист · запускается один раз при развёртывании" vertex="1">
+          <mxGeometry height="280" width="570" x="660" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" parent="data" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#0e8088;" value="&lt;b&gt;Классификатор_происшествий_v046.xlsx&lt;/b&gt; → scripts/import_classifier.py → classifier.json → таблица classifier (категории, подкатегории, признаки, службы оповещения)" vertex="1">
+          <mxGeometry height="44" width="540" x="15" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" parent="data" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#0e8088;" value="&lt;b&gt;Билеты-задачи по С-112 (PDF, 32 стр.)&lt;/b&gt; → scripts/import_tickets.py → tickets.json {situation, address, applicant, phone} → демо-сценарии + few-shot для промптов + тестовый набор QA" vertex="1">
+          <mxGeometry height="44" width="540" x="15" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" parent="data" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#0e8088;" value="&lt;b&gt;Памятка «Работа на АРМ-112» (PDF, 40 стр.)&lt;/b&gt; → референс интерфейса ПОВ-112: грид карточек, опросная карта, список оповещения, статусы реагирования → frontend + поля контракта incident_card" vertex="1">
+          <mxGeometry height="44" width="540" x="15" y="144" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" parent="data" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;spacingTop=2;fontSize=10;fillColor=#ffffff;strokeColor=#0e8088;" value="&lt;b&gt;Сидирование БД&lt;/b&gt; → миграции goose → seed (users по умолчанию admin / teacher / student, классификатор, демо-сценарии, настройки: норматив 30 с, пороги) → готовый стенд для демо" vertex="1">
+          <mxGeometry height="44" width="540" x="15" y="196" as="geometry" />
+        </mxCell>
+        <mxCell id="e_clients_fe" edge="1" parent="1" source="clients" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="frontend" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_clients_fe_l" connectable="0" parent="e_clients_fe" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="браузер · адаптивная вёрстка" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="100" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_fe_nginx" edge="1" parent="1" source="frontend" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=1;exitY=0.662;entryX=0;entryY=0.5;" target="nginx" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_fe_nginx_l" connectable="0" parent="e_fe_nginx" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="HTTPS :443&lt;br&gt;/api · /ws" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_nginx_go" edge="1" parent="1" source="nginx" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.931;" target="go" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_nginx_go_l" connectable="0" parent="e_nginx_go" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="HTTP :8080&lt;br&gt;/api/v1 · /ws" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_go_ai" edge="1" parent="1" source="pkg_aiclient" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.474;" target="ai" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_go_ai_l" connectable="0" parent="e_go_ai" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="REST JSON :8000&lt;br&gt;timeout / retry" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_ai_ollama" edge="1" parent="1" source="ai" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" target="ollama" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ai_ollama_l" connectable="0" parent="e_ai_ollama" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="HTTP :11434 · /api/chat · format=json" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_ai_lt" edge="1" parent="1" source="ai" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0.75;exitY=1;entryX=0.5;entryY=0;" target="languagetool" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ai_lt_l" connectable="0" parent="e_ai_lt" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="HTTP :8010 · /v2/check · ru-RU" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_storage_pg" edge="1" parent="1" source="pkg_storage" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=0.5;exitY=1;entryX=0.75;entryY=0;" target="postgres" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_storage_pg_l" connectable="0" parent="e_storage_pg" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="pgx · :5432 · TLS · goose" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="95" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_pg_volumes" edge="1" parent="1" source="postgres" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.122;entryX=0;entryY=0.727;" target="volumes" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pg_volumes_l" connectable="0" parent="e_pg_volumes" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="pg_dump 1/сутки&lt;br&gt;→ backups/" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_data_pg" edge="1" parent="1" source="data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0e8088;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=0;exitY=0.214;entryX=1;entryY=0.659;" target="postgres" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_data_pg_l" connectable="0" parent="e_data_pg" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="seed JSON&lt;br&gt;→ таблицы" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_data_ai" edge="1" parent="1" source="data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0e8088;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;exitX=1;exitY=0.214;entryX=1;entryY=0.5;" target="ai" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1940" y="900" />
+              <mxPoint x="1940" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_ws_monitor" edge="1" parent="1" source="go" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;dashed=1;fontSize=10;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=0.45;exitY=0;entryX=0;entryY=0.5;" target="fe_ws" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="972" y="100" />
+              <mxPoint x="55" y="100" />
+              <mxPoint x="55" y="749" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_ws_monitor_l" connectable="0" parent="e_ws_monitor" style="edgeLabel;html=1;align=center;verticalAlign=bottom;fontSize=10;labelBackgroundColor=#ffffff;spacingBottom=2;" value="WSS /ws · live-мониторинг преподавателя · reconnect ≤ 30 с · события по контракту ws_events (lesson.*, card.*, result.ready, timer.tick)" vertex="1">
+          <mxGeometry relative="1" x="-0.45" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

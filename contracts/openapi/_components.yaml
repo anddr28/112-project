@@ -1,0 +1,304 @@
+# ============================================================================
+# Общие схемы контракта go-core <-> ai-service (и позже frontend).
+# Источник истины для кодогенерации:
+#   Go     — oapi-codegen (типы + клиент + сервер callback'а)
+#   Python — datamodel-code-generator (Pydantic-модели)
+# Правило изменения: только PR с ревью обоих концов.
+# CI-замок: make generate && git diff --exit-code.
+# ============================================================================
+openapi: 3.0.3
+info:
+  title: LCT shared components
+  version: "1"
+paths: {}
+components:
+  securitySchemes:
+    InternalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: >
+        Общий секрет из env INTERNAL_API_TOKEN. Оба сервиса живут только
+        в docker-сети; наружу эти API не публикуются.
+
+  schemas:
+    SchemaVersion:
+      type: string
+      enum: ["1"]
+      description: Версия конверта. Несовпадение — 400, задача в failed без ретраев.
+
+    JobType:
+      type: string
+      enum: [evaluate_grammar, evaluate_semantic, generate_scenario, tts]
+
+    Profile:
+      type: string
+      enum: [eval_fast, eval_thorough, generate, tts_default]
+      description: >
+        Профиль модели/промпта. Маппинг профиль -> (модель, промпт, лимиты) живёт
+        в конфиге ai-service и настройках админа (settings), НЕ в контракте:
+        смену 3b на 7b контракт не замечает.
+
+    Score:
+      type: number
+      minimum: 0
+      maximum: 100
+      description: Сырой балл слоя 0..100. Веса слоёв и итог считает ТОЛЬКО go-core.
+
+    # ------------------------------------------------------------------ домен
+
+    Address:
+      type: object
+      description: Адрес. raw — как прозвучало/введено; остальное — нормализация.
+      properties:
+        raw: {type: string}
+        city: {type: string}
+        street: {type: string}
+        house: {type: string}
+        entrance: {type: string}
+        floor: {type: string}
+        apartment: {type: string}
+        landmark: {type: string, description: 'Ориентир: "напротив школы №14"'}
+
+    CallScript:
+      type: object
+      description: >
+        Легенда звонка (scenarios.call_script). Генерируется LLM, валидируется
+        преподавателем до выдачи студентам.
+      required: [caller, address, turns]
+      properties:
+        caller:
+          type: object
+          properties:
+            name: {type: string}
+            phone: {type: string}
+            role: {type: string, description: "очевидец / пострадавший / сосед / ..."}
+            emotional_state: {type: string, description: "для TTS и реализма: паника, спокоен, ..."}
+        address:
+          $ref: '#/components/schemas/Address'
+        key_facts:
+          type: array
+          items: {type: string}
+          description: >
+            Факты, которые заявитель сообщает по ходу звонка. Источник для
+            required_facts эталона и опора семантической проверки.
+        turns:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [speaker, text]
+            properties:
+              speaker: {type: string, enum: [caller, operator_hint]}
+              text: {type: string}
+              tts_hash:
+                type: string
+                description: sha256(text|voice|rate) — ключ tts_cache; NULL до озвучки
+
+    IncidentCard:
+      type: object
+      description: >
+        Карточка происшествия (attempts.card, etalons.card). Типизированное ядро +
+        attributes — динамическая опросная карта категории. attributes валидируются
+        ДАННЫМИ classifier_categories.attributes на границе API go-core, не этой спекой.
+      properties:
+        category_code: {type: string, description: код категории классификатора}
+        address:
+          $ref: '#/components/schemas/Address'
+        applicant:
+          type: object
+          properties:
+            name: {type: string}
+            phone: {type: string}
+        casualties:
+          type: object
+          properties:
+            injured: {type: integer, minimum: 0}
+            dead: {type: integer, minimum: 0}
+            trapped: {type: integer, minimum: 0}
+        services_to_notify:
+          type: array
+          items: {type: string}
+          description: Коды services.code ("01".."04", "gormost", ...)
+        description:
+          type: string
+          description: Свободный текст — описание происшествия (слои grammar + semantic)
+        actions_taken:
+          type: string
+          description: Свободный текст — действия оператора (слои grammar + semantic)
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Признаки опросной карты, специфичные для категории
+
+    Scoring:
+      type: object
+      description: Правила оценки сценария (etalons.scoring) — переопределения поверх дефолтов.
+      properties:
+        required_fields:
+          type: array
+          items: {type: string}
+        field_weights:
+          type: object
+          additionalProperties: {type: number}
+        required_facts:
+          type: array
+          items: {type: string}
+        forbidden_facts:
+          type: array
+          items: {type: string}
+          description: Факты, которых в ответе быть не должно (домыслы, выдумки)
+
+    ExpectedAction:
+      type: object
+      description: Эталон режима "действия с карточками".
+      required: [action_text]
+      properties:
+        action_text: {type: string}
+        required_facts:
+          type: array
+          items: {type: string}
+        forbidden_facts:
+          type: array
+          items: {type: string}
+
+    AnswerTurn:
+      type: object
+      description: Ответ студента на реплику (задел под многорепликовые сценарии).
+      required: [turn_no, answer_text]
+      properties:
+        turn_no: {type: integer, minimum: 1}
+        prompt_text: {type: string, description: "реплика заявителя, на которую отвечали"}
+        answer_text: {type: string}
+
+    # --------------------------------------------------------------- результаты
+
+    GrammarRemark:
+      type: object
+      required: [field, offset, length, severity, message]
+      properties:
+        field: {type: string, description: 'путь поля карточки ("description", "answer_turns.1")'}
+        offset: {type: integer, minimum: 0}
+        length: {type: integer, minimum: 1}
+        severity: {type: string, enum: [error, warning, style]}
+        rule: {type: string, description: id правила LanguageTool}
+        message: {type: string}
+        suggestions:
+          type: array
+          items: {type: string}
+
+    GrammarResult:
+      type: object
+      required: [score, stats, remarks]
+      properties:
+        score:
+          $ref: '#/components/schemas/Score'
+        stats:
+          type: object
+          required: [words_checked]
+          properties:
+            words_checked: {type: integer, minimum: 0}
+            errors_by_severity:
+              type: object
+              additionalProperties: {type: integer}
+        remarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrammarRemark'
+
+    SemanticPerField:
+      type: object
+      required: [field, score]
+      properties:
+        field: {type: string}
+        score:
+          $ref: '#/components/schemas/Score'
+        comment: {type: string}
+
+    SemanticResult:
+      type: object
+      required: [score, confidence]
+      properties:
+        score:
+          $ref: '#/components/schemas/Score'
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >
+            Уверенность модели в оценке. Ниже порога (settings, дефолт 0.7) — go-core
+            помечает evaluations "требует ревью преподавателя" и кандидатом
+            на ночную переоценку профилем eval_thorough.
+        missing_facts:
+          type: array
+          items: {type: string}
+          description: Обязательные факты эталона, отсутствующие в ответе
+        extra_facts:
+          type: array
+          items: {type: string}
+          description: Факты в ответе, которых нет в легенде — домыслы
+        per_field:
+          type: array
+          items:
+            $ref: '#/components/schemas/SemanticPerField'
+        summary_for_student:
+          type: string
+          description: 1–2 предложения обратной связи; UI показывает как есть
+
+    ScenarioResult:
+      type: object
+      required: [title, call_script, etalon_card]
+      properties:
+        title: {type: string}
+        call_script:
+          $ref: '#/components/schemas/CallScript'
+        etalon_card:
+          $ref: '#/components/schemas/IncidentCard'
+        expected_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpectedAction'
+        difficulty_estimate:
+          type: integer
+          minimum: 1
+          maximum: 3
+        notes_for_teacher:
+          type: string
+          description: На что обратить внимание при валидации сценария
+
+    TtsResult:
+      type: object
+      required: [text_hash, file_path, duration_ms]
+      properties:
+        text_hash: {type: string}
+        file_path: {type: string, description: относительный путь в shared volume tts_cache}
+        duration_ms: {type: integer, minimum: 0}
+        voice: {type: string}
+        rate: {type: number}
+
+    Engine:
+      type: object
+      description: >
+        Воспроизводимость оценки (ТЗ: QA модели). Пишется в evaluations.engine /
+        scenarios.generation_meta как есть.
+      required: [duration_ms]
+      properties:
+        llm_model: {type: string, description: '"qwen2.5:3b-q4_K_M"'}
+        prompt_version: {type: string, description: '"sem-v3"'}
+        lt_version: {type: string}
+        rules_version: {type: string, description: версия формулы grammar.score}
+        tts_version: {type: string}
+        duration_ms: {type: integer, minimum: 0, description: чистое время вычисления}
+        queue_wait_ms: {type: integer, minimum: 0, description: сколько задача ждала в очереди ai-service}
+        tokens_in: {type: integer}
+        tokens_out: {type: integer}
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        details:
+          type: object
+          additionalProperties: true
