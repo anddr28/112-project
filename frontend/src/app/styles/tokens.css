@@ -1,0 +1,120 @@
+/*
+ * Дизайн-токены.
+ *
+ * Две группы, намеренно разделённые:
+ *   --arm-* / --dds-*  рабочее место АРМ-112. НЕ МЕНЯТЬ: значения сняты с
+ *                      реальных скриншотов ПОВ-112, карточка зафиксирована.
+ *   --u-*              оболочка системы (вход, кабинеты, отчёты). Строится
+ *                      на той же технической логике, что и АРМ: нулевой
+ *                      radius, границы 1px, без теней, плотная сетка.
+ *
+ * Единая шкала размеров текста на всю оболочку: 11 / 12 / 13 / 15 / 20 / 28.
+ * Значений вне шкалы быть не должно.
+ */
+
+:root {
+  /* ───────────────────────────────── оболочка: нейтральный холодный ряд */
+  --u-bg: #e8eaed;
+  --u-surface: #ffffff;
+  --u-surface-2: #f4f6f8;
+  --u-surface-3: #eef1f4;
+  --u-border: #d2d7dd;
+  --u-border-strong: #b3bac2;
+  --u-border-dark: #8b939d;
+
+  --u-text: #16191d;
+  --u-text-2: #565c64;
+  --u-text-3: #848c95;
+  --u-text-inv: #ffffff;
+
+  /* Акцент — тот же синий, что в карточке АРМ: система одна */
+  --u-accent: #1668b3;
+  --u-accent-dark: #0f4f8a;
+  --u-accent-soft: #e4edf6;
+
+  --u-danger: #d32316;
+  --u-danger-soft: #fbe9e7;
+  --u-warn: #8a5a00;
+  --u-warn-soft: #fdf4e3;
+  --u-ok: #1f6b45;
+  --u-ok-soft: #e8f2ec;
+
+  /* Форма: нулевой radius на всей оболочке */
+  --u-radius: 0;
+
+  /* Шкала текста */
+  --u-fs-xs: 11px;
+  --u-fs-sm: 12px;
+  --u-fs: 13px;
+  --u-fs-md: 15px;
+  --u-fs-lg: 20px;
+  --u-fs-xl: 28px;
+
+  /* Шаг сетки 4px */
+  --u-gap-1: 4px;
+  --u-gap-2: 8px;
+  --u-gap-3: 12px;
+  --u-gap-4: 16px;
+  --u-gap-5: 24px;
+
+  /* Высоты: одна для всех контролов оболочки */
+  --u-control-h: 30px;
+  --u-control-h-sm: 24px;
+  --u-row-h: 30px;
+  --u-topbar-h: 44px;
+
+  --u-font: 'Segoe UI', 'Roboto', system-ui, -apple-system, Arial, sans-serif;
+  --u-mono: 'Cascadia Mono', 'Consolas', 'SF Mono', monospace;
+
+  /* ───────────────────────────────── вход в систему */
+  --login-sky-top: #5ba0d0;
+  --login-sky-mid: #8dbfe1;
+  --login-sky-low: #c3dded;
+  --login-btn: #8a8a85;
+  --login-btn-hover: #777772;
+  --login-line: rgb(255 255 255 / 62%);
+  --login-label: rgb(255 255 255 / 78%);
+  --login-link: #0d5a9a;
+
+  /* ─────────────────────────────── АРМ-112: рабочее место оператора (светлое) */
+  --arm-bg: #e9eaec;
+  --arm-panel: #ffffff;
+  --arm-panel-2: #f2f3f5;
+  --arm-border: #c9ccd1;
+  --arm-border-2: #dcdee2;
+
+  --arm-text: #16191d;
+  --arm-text-2: #5b6068;
+  --arm-label: #8b9099;
+
+  --arm-blue: #1668b3;
+  --arm-blue-dark: #0f4f8a;
+  --arm-selected: #1668b3;
+  --arm-orange: #e8642a;
+  --arm-orange-dark: #cf5522;
+  --arm-red: #d32316;
+  --arm-dark: #3c4148;
+
+  --arm-field-line: #b7bbc2;
+  --arm-focus: #1668b3;
+
+  /* АРМ ДДС: тёмная тема журнала */
+  --dds-bg: #6f757c;
+  --dds-panel: #565c63;
+  --dds-row: #4b5158;
+  --dds-row-alt: #52585f;
+  --dds-border: #8b9199;
+  --dds-text: #f1f2f4;
+  --dds-text-2: #c7cbd0;
+
+  --arm-font: 'Segoe UI', 'Roboto', system-ui, Arial, sans-serif;
+  --arm-fs: 12px;
+  --arm-fs-sm: 11px;
+  --arm-fs-label: 10.5px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

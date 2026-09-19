@@ -1,0 +1,905 @@
+/*
+ * Рабочее место АРМ-112.
+ *
+ * Плотный desktop-интерфейс. Структура повторяет реальный ПОВ-112
+ * (docs/СКРИНШОТ КАРТОЧКИ 112ГСИ.docx): три горизонтальные полосы —
+ * телефоны/таймер сверху, две колонки в теле, оранжевая панель служб снизу.
+ * Не dashboard: мелкий шрифт, тонкие линии, подчёркнутые поля, минимум радиусов.
+ */
+
+.arm {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 1180px;
+  background: var(--arm-bg);
+  font-family: var(--arm-font);
+  font-size: var(--arm-fs);
+  color: var(--arm-text);
+  overflow: auto;
+}
+
+.arm__lock {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  padding: 40px;
+  text-align: center;
+  background: var(--arm-bg);
+}
+
+/* ───────────────────────────────────────────────── верхняя полоса: телефоны */
+
+.arm-top {
+  display: grid;
+  grid-template-columns: 210px repeat(3, minmax(220px, 1fr)) 250px;
+  background: var(--arm-panel);
+  border-bottom: 1px solid var(--arm-border);
+}
+
+.arm-top__cell {
+  border-right: 1px solid var(--arm-border-2);
+  padding: 7px 10px;
+  min-height: 62px;
+}
+
+.arm-top__disconnect { display: flex; flex-direction: column; gap: 6px; }
+
+.arm-top__hangup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--arm-fs);
+  color: var(--arm-text-2);
+}
+
+.arm-top__hangup-icon { font-size: 16px; transform: rotate(135deg); }
+
+.arm-top__minibtns { display: flex; gap: 4px; }
+
+.arm-mini {
+  padding: 2px 7px;
+  border: 1px solid var(--arm-border);
+  background: var(--arm-panel-2);
+  color: var(--arm-text-2);
+  font-size: var(--arm-fs-label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.arm-mini:hover:not(:disabled) { background: #e6e8eb; }
+.arm-mini:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.arm-phone__label {
+  font-size: var(--arm-fs-label);
+  color: var(--arm-label);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.arm-phone__input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 2px 0;
+  border: none;
+  border-bottom: 1px solid var(--arm-field-line);
+  background: transparent;
+  font-family: inherit;
+  font-size: 17px;
+  color: var(--arm-text);
+  letter-spacing: 0.01em;
+}
+
+.arm-phone__input:focus { outline: none; border-bottom: 2px solid var(--arm-focus); }
+.arm-phone__input:disabled { color: var(--arm-text-2); }
+
+.arm-phone__row { display: flex; align-items: flex-end; gap: 6px; }
+.arm-phone__aon-btn { flex: none; }
+
+/* карточка + таймер */
+
+.arm-top__ident {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  border-right: none;
+}
+
+.arm-ident {
+  flex: 1;
+  padding: 7px 10px;
+  line-height: 1.35;
+}
+
+.arm-ident__no { font-size: 13px; font-weight: 700; }
+.arm-ident__meta { font-size: var(--arm-fs-label); color: var(--arm-text-2); }
+
+.arm-timer {
+  width: 92px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  background: var(--arm-dark);
+  color: #fff;
+  padding: 4px 0 3px;
+}
+
+.arm-timer--exceeded { background: var(--arm-red); }
+
+.arm-timer__value {
+  font-size: 25px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.arm-timer__units {
+  display: flex;
+  gap: 10px;
+  font-size: 8.5px;
+  text-transform: lowercase;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+.arm-timer__norm {
+  font-size: 8.5px;
+  opacity: 0.8;
+  margin-top: 1px;
+}
+
+/* ─────────────────────────────────────────────────────────── тело карточки */
+
+.arm-body {
+  display: grid;
+  grid-template-columns: minmax(430px, 44%) minmax(0, 56%);
+  gap: 8px;
+  padding: 8px;
+  align-items: start;
+  min-height: 0;
+  /*
+   * Тело карточки обязано удерживать своё содержимое.
+   *
+   * Строки .arm складываются ровно в высоту окна, поэтому сам .arm по вертикали
+   * не прокручивается. Без этого правила у .arm-body остаётся overflow: visible,
+   * содержимое вытекает за нижнюю границу строки, и оранжевая панель — идущая
+   * в потоке ниже — отрисовывается поверх него. На невысоком окне под панель
+   * уходили блок описания и панель разговора.
+   *
+   * Прокрутка здесь: шапка с телефонами и панель служб остаются на местах,
+   * как в реальном рабочем месте.
+   */
+  overflow: auto;
+}
+
+.arm-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.arm-panel {
+  background: var(--arm-panel);
+  border: 1px solid var(--arm-border);
+}
+
+.arm-panel__pad { padding: 8px 10px; }
+
+/* заявитель */
+
+.arm-applicant {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 8px 10px;
+}
+
+.arm-line-input {
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  border-bottom: 1px solid var(--arm-field-line);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  color: var(--arm-text);
+}
+
+.arm-line-input::placeholder { color: var(--arm-label); }
+.arm-line-input:focus { outline: none; border-bottom: 2px solid var(--arm-focus); }
+.arm-line-input:disabled { color: var(--arm-text-2); background: transparent; }
+
+.arm-line-input--invalid { border-bottom-color: var(--arm-red); }
+
+/* адрес */
+
+.arm-address__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+  font-size: var(--arm-fs-label);
+  color: var(--arm-text-2);
+}
+
+.arm-address__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 6px;
+  border-bottom: 1px solid var(--arm-border-2);
+}
+
+.arm-address__search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 3px 0;
+  color: var(--arm-text);
+}
+
+.arm-address__search input:focus { outline: none; }
+
+.arm-suggest {
+  position: absolute;
+  top: 100%;
+  left: 10px;
+  right: 10px;
+  z-index: 40;
+  background: #fff;
+  border: 1px solid var(--arm-border);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 14%);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.arm-suggest__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  cursor: pointer;
+  border-bottom: 1px solid var(--arm-border-2);
+}
+
+.arm-suggest__item:hover { background: var(--arm-blue); color: #fff; }
+.arm-suggest__item:hover .arm-suggest__src { color: #dce9f5; }
+.arm-suggest__src { font-size: var(--arm-fs-label); color: var(--arm-label); white-space: nowrap; }
+
+.arm-address__grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px 10px;
+  padding: 8px 10px;
+}
+
+.arm-fld { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.arm-fld__label { font-size: var(--arm-fs-label); color: var(--arm-label); white-space: nowrap; }
+
+.c2 { grid-column: span 2; }
+.c3 { grid-column: span 3; }
+.c4 { grid-column: span 4; }
+.c5 { grid-column: span 5; }
+.c6 { grid-column: span 6; }
+.c12 { grid-column: span 12; }
+
+.arm-address__foot { display: flex; justify-content: flex-end; padding: 0 10px 8px; }
+
+/* описание */
+
+.arm-desc { display: flex; flex-direction: column; }
+
+.arm-desc__label { padding: 6px 10px 2px; font-size: var(--arm-fs-label); color: var(--arm-text-2); }
+
+.arm-desc textarea {
+  border: none;
+  resize: vertical;
+  min-height: 150px;
+  padding: 2px 10px 6px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--arm-text);
+  background: transparent;
+}
+
+.arm-desc textarea:focus { outline: none; }
+
+.arm-desc__counter {
+  padding: 0 10px 6px;
+  text-align: right;
+  font-size: var(--arm-fs-label);
+  color: var(--arm-label);
+}
+
+.arm-desc__counter--over { color: var(--arm-red); font-weight: 600; }
+
+/* ─────────────────────────────────────────── правая колонка: флаги и типы */
+
+.arm-flags {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.arm-flags__group { display: flex; gap: 6px; }
+.arm-flags__group + .arm-flags__group { padding-left: 8px; border-left: 1px solid var(--arm-border-2); }
+
+.arm-flagbtn {
+  padding: 8px 12px;
+  border: 1px solid var(--arm-border);
+  background: var(--arm-panel);
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  line-height: 1.2;
+  color: var(--arm-text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.arm-flagbtn:hover:not(:disabled) { background: var(--arm-panel-2); }
+.arm-flagbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.arm-flagbtn.is-on { background: var(--arm-selected); border-color: var(--arm-selected); color: #fff; }
+.arm-flagbtn--alert { color: var(--arm-orange); border-color: #f0b49a; }
+.arm-flagbtn--alert.is-on { background: var(--arm-orange); border-color: var(--arm-orange); color: #fff; }
+
+/* что случилось */
+
+.arm-what { padding: 8px 10px 10px; }
+
+.arm-what__hint { font-size: var(--arm-fs-label); color: var(--arm-label); }
+
+.arm-what__input {
+  width: 100%;
+  padding: 3px 0 5px;
+  border: none;
+  border-bottom: 1px solid var(--arm-field-line);
+  background: transparent;
+  font-family: inherit;
+  font-size: 19px;
+  color: var(--arm-text);
+}
+
+.arm-what__input::placeholder { color: #9aa0a8; text-transform: uppercase; }
+.arm-what__input:focus { outline: none; border-bottom: 2px solid var(--arm-focus); }
+
+.arm-what__results {
+  border: 1px solid var(--arm-border);
+  border-top: none;
+  max-height: 230px;
+  overflow: auto;
+  background: #fff;
+}
+
+.arm-what__result {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 1px solid var(--arm-border-2);
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.arm-what__result:hover { background: var(--arm-blue); color: #fff; }
+
+.arm-what__section { margin-top: 10px; }
+.arm-what__section-title { font-size: var(--arm-fs-label); color: var(--arm-label); margin-bottom: 5px; }
+
+.arm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.arm-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--arm-border);
+  background: var(--arm-panel);
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  color: var(--arm-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.arm-chip:hover:not(:disabled) { background: var(--arm-panel-2); border-color: var(--arm-text-2); }
+.arm-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.arm-chip.is-selected { background: var(--arm-selected); border-color: var(--arm-selected); color: #fff; }
+
+.arm-chip--picked {
+  background: var(--arm-panel);
+  border-color: var(--arm-blue);
+  color: var(--arm-blue-dark);
+  font-weight: 600;
+}
+
+/* опросная карта */
+
+.arm-survey { border: 1px solid var(--arm-border); margin-top: 8px; background: var(--arm-panel); }
+
+.arm-survey__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  background: var(--arm-dark);
+  color: #fff;
+}
+
+.arm-survey__title {
+  font-size: var(--arm-fs);
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+/* Инструкция п.4.4: сплошное подчёркивание — справка есть, пунктир — нет */
+.arm-survey__title--has-ref { text-decoration: underline; text-decoration-style: solid; }
+.arm-survey__title--no-ref { text-decoration: underline; text-decoration-style: dotted; }
+
+.arm-survey__close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.arm-survey__body { padding: 6px 10px 10px; }
+
+.arm-attr {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 5px 0;
+}
+
+.arm-attr__label { font-size: var(--arm-fs); color: var(--arm-text-2); padding-top: 5px; }
+.arm-attr__label--req::after { content: ' *'; color: var(--arm-red); }
+.arm-attr__control { min-width: 0; }
+
+.arm-attr__text,
+.arm-attr__number {
+  width: 100%;
+  max-width: 320px;
+  border: none;
+  border-bottom: 1px solid var(--arm-field-line);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  padding: 4px 0;
+}
+
+.arm-attr__text:focus,
+.arm-attr__number:focus { outline: none; border-bottom: 2px solid var(--arm-focus); }
+
+.arm-note {
+  padding: 8px 10px;
+  background: #fff6ea;
+  border: 1px solid #f0d4ae;
+  font-size: var(--arm-fs);
+  color: #7a5314;
+  margin-top: 8px;
+}
+
+.arm-note--blocked { background: #eef3f8; border-color: #c3d4e6; color: #2b4c6d; }
+
+/* ───────────────────────────────────────── нижняя панель: службы и действия */
+
+/*
+ * Единая оранжевая панель в основании карточки.
+ *
+ * Раньше её рисовали два отдельных блока .arm-bottom, каждый со своим фоном,
+ * границей и min-height: 56px — получалось 112px оранжевого, две независимые
+ * сетки и несовпадающие колонки. Теперь фон, граница и отступы живут здесь,
+ * а строки раскрываются в общую сетку, поэтому «Службы:» и «Черновик»
+ * стоят в одной колонке, а «+» и «сохранить» — в другой.
+ */
+.arm-bottombar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+  background: var(--arm-orange);
+  border-top: 1px solid var(--arm-orange-dark);
+  padding: 6px 8px;
+}
+
+/* Строка панели: становится набором ячеек родительской сетки. */
+.arm-bottom {
+  display: contents;
+}
+
+.arm-bottom__label {
+  display: flex;
+  align-items: center;
+  color: #fff;
+  font-size: var(--arm-fs);
+  font-weight: 600;
+  padding-right: 6px;
+}
+
+.arm-services { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+
+.arm-service {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 108px;
+  padding: 4px 8px 5px;
+  background: var(--arm-panel-2);
+  border: 1px solid var(--arm-border);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--arm-text);
+}
+
+.arm-service:hover { background: #fff; }
+.arm-service.is-active { background: var(--arm-dark); color: #fff; border-color: var(--arm-dark); }
+.arm-service.is-active .arm-service__status { color: #d7dade; }
+
+.arm-service__top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+
+.arm-service__name { font-size: var(--arm-fs); font-weight: 600; white-space: nowrap; }
+
+/* Инструкция п.8: основные службы подчёркиваются двойной линией */
+.arm-service__name--primary { text-decoration: underline; text-decoration-style: double; }
+
+.arm-service__status { font-size: var(--arm-fs-label); color: var(--arm-text-2); white-space: nowrap; }
+.arm-service__status--rejected { color: var(--arm-red); font-weight: 600; }
+.arm-service__status--done { color: #1f6b45; font-weight: 600; }
+
+.arm-service__x {
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 1px;
+}
+
+.arm-service__x:hover { opacity: 1; }
+
+.arm-service__vis {
+  font-size: 8.5px;
+  border: 1px solid currentcolor;
+  padding: 0 3px;
+  opacity: 0.8;
+}
+
+.arm-addsvc {
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #fff;
+  background: transparent;
+  color: #fff;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+
+.arm-addsvc:hover:not(:disabled) { background: rgb(255 255 255 / 18%); }
+.arm-addsvc:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.arm-bottom__actions { display: flex; align-items: center; gap: 6px; }
+
+.arm-save {
+  padding: 9px 26px;
+  border: none;
+  background: #fff;
+  color: var(--arm-text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.arm-save:hover:not(:disabled) { background: #f0f0f0; }
+.arm-save:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.arm-iconbtn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgb(255 255 255 / 45%);
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.arm-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* панель статуса службы (над полосой служб) */
+
+.arm-statusbar {
+  display: grid;
+  grid-template-columns: 210px 120px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--arm-panel);
+  border: 1px solid var(--arm-border);
+  margin: 0 8px;
+}
+
+.arm-statusbar select,
+.arm-statusbar input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--arm-border);
+  background: #fff;
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  color: var(--arm-text);
+}
+
+.arm-statusbar select:focus,
+.arm-statusbar input:focus { outline: none; border-color: var(--arm-focus); }
+
+.arm-statusbar__ok,
+.arm-statusbar__cancel {
+  width: 30px;
+  height: 27px;
+  border: 1px solid var(--arm-border);
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.arm-statusbar__ok { color: #1f6b45; }
+.arm-statusbar__ok:disabled { opacity: 0.4; cursor: not-allowed; }
+.arm-statusbar__cancel { color: var(--arm-text-2); }
+
+.arm-history {
+  margin: 0 8px;
+  background: #1f6398;
+  color: #fff;
+  border: 1px solid #14496f;
+  max-height: 148px;
+  overflow: auto;
+}
+
+.arm-history__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: #185183;
+  font-size: var(--arm-fs);
+  font-weight: 600;
+}
+
+.arm-history__row {
+  display: grid;
+  grid-template-columns: 46px 1fr 1.2fr;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: var(--arm-fs-label);
+  border-top: 1px solid rgb(255 255 255 / 12%);
+}
+
+.arm-history__close { background: none; border: none; color: #fff; cursor: pointer; font-size: 14px; }
+
+/* ──────────────────────────────────────────────────────── модалка служб */
+
+.arm-modal {
+  width: 100%;
+  max-width: 470px;
+  background: #fff;
+  border: 1px solid var(--arm-border);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 28%);
+}
+
+.arm-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 6px;
+}
+
+.arm-modal__title { font-size: 19px; font-weight: 600; }
+
+.arm-modal__search { padding: 4px 16px 10px; }
+
+.arm-modal__search input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--arm-field-line);
+  padding: 5px 0;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.arm-modal__search input:focus { outline: none; border-bottom-color: var(--arm-focus); }
+
+.arm-modal__list { max-height: 290px; overflow: auto; border-top: 1px solid var(--arm-border-2); }
+
+.arm-modal__item {
+  display: block;
+  width: 100%;
+  padding: 9px 16px;
+  border: none;
+  border-bottom: 1px solid var(--arm-border-2);
+  background: #fff;
+  text-align: left;
+  font-family: inherit;
+  font-size: var(--arm-fs);
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+.arm-modal__item:hover { background: var(--arm-panel-2); }
+.arm-modal__item.is-selected { background: var(--arm-blue); color: #fff; }
+.arm-modal__item.is-selected:hover { background: var(--arm-blue-dark); }
+
+.arm-modal__foot { display: flex; justify-content: center; padding: 14px 16px; }
+
+.arm-modal__save {
+  padding: 9px 26px;
+  border: 1px solid var(--arm-border);
+  background: #fff;
+  color: var(--arm-orange);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.arm-modal__save:hover { background: #fff6f2; }
+
+/* ─────────────────────────────────────────────────── экран входящего вызова */
+
+.call-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #22272e;
+  padding: 24px;
+}
+
+.call-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--arm-panel);
+  border: 1px solid var(--arm-border);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 45%);
+  text-align: center;
+  padding: 28px 24px 22px;
+}
+
+.call-card__pulse {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--arm-orange);
+  color: #fff;
+  font-size: 25px;
+  animation: call-pulse 1.5s ease-out infinite;
+}
+
+/*
+ * Бесконечная анимация отключается, если пользователь попросил уменьшить
+ * движение: экран входящего вызова остаётся читаемым и без пульсации.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .call-card__pulse { animation: none; }
+}
+
+@keyframes call-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(232 100 42 / 55%); }
+  70% { box-shadow: 0 0 0 16px rgb(232 100 42 / 0%); }
+  100% { box-shadow: 0 0 0 0 rgb(232 100 42 / 0%); }
+}
+
+.call-card__title { font-size: 17px; font-weight: 600; }
+.call-card__phone { font-size: 24px; font-variant-numeric: tabular-nums; margin: 8px 0 4px; }
+.call-card__meta { font-size: var(--arm-fs); color: var(--arm-text-2); }
+
+.call-card__accept {
+  margin-top: 20px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: var(--arm-orange);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.call-card__accept:hover { background: var(--arm-orange-dark); }
+
+/* панель разговора внутри АРМ */
+
+.call-panel { display: flex; flex-direction: column; min-height: 0; }
+
+.call-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--arm-dark);
+  color: #fff;
+  font-size: var(--arm-fs);
+}
+
+.call-panel__log {
+  max-height: 168px;
+  overflow: auto;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.call-turn { font-size: var(--arm-fs); line-height: 1.4; }
+.call-turn__who { font-size: var(--arm-fs-label); color: var(--arm-label); }
+.call-turn--caller .call-turn__text { color: var(--arm-text); }
+
+.call-turn--hint {
+  border-left: 2px solid var(--arm-blue);
+  padding-left: 7px;
+  background: #f2f7fc;
+}
+
+.call-turn--hint .call-turn__text { color: var(--arm-blue-dark); font-style: italic; }
+.call-turn.is-current { background: #fff6ea; padding: 4px 7px; border-left: 2px solid var(--arm-orange); }
+
+.call-panel__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--arm-border-2);
+  background: var(--arm-panel-2);
+}
+
+/* индикатор автосохранения */
+
+.arm-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--arm-fs-label);
+  color: var(--arm-text-2);
+}
+
+.arm-autosave__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--arm-label); }
+.arm-autosave__dot--saving { background: var(--arm-orange); }
+.arm-autosave__dot--saved { background: #1f6b45; }
+.arm-autosave__dot--error { background: var(--arm-red); }
