@@ -1,6 +1,6 @@
 # Задачи: ai-service (Python)
 
-Владелец: питонист. Срок: freeze **29.09**. Контракт: `contracts/openapi/ai-service.v1.yaml`
+Владелец: питонист. Контракт: `contracts/openapi/ai-service.v1.yaml`
 (сервер — ты), `go-internal.v1.yaml` (клиент — ты), общие схемы `_components.yaml`.
 Контекст: `docs/voice-mode.md`, `docs/contracts.md`. Выбор моделей — `ml-research.md`
 (делается параллельно с QA, результаты кладутся в `config/models.yaml`).
@@ -74,14 +74,14 @@ ai-service/
 
 ## 2. Docker и офлайн
 
-**PY-01 — скелет, конфиг, health, Dockerfile, compose.** *(0.5 дня, до M0 22.09)*
+**PY-01 — скелет, конфиг, health, Dockerfile, compose.** *(0.5 дня, этап 1)*
 
 - `Dockerfile`: `python:3.11-slim`, `ffmpeg` (декод webm/opus для STT), torch CPU
   (`--index-url https://download.pytorch.org/whl/cpu`), `faster-whisper`, `silero`
   (файл `v4_ru.pt`), `num2words`, `httpx`, `pydantic-settings`, `av`. Модели скачиваются
   на этапе сборки `tools/models_pull.py` (whisper small int8 → `models/whisper/`,
   silero → `models/silero/`) и **запекаются в образ** — на стенде интернета нет.
-  Размер ~2.5 ГБ — норм. Тег: `lct/ai-service:<git-sha>` и `:m0/:m1/…` для QA.
+  Размер ~2.5 ГБ — норм. Тег: `lct/ai-service:<git-sha>` и `:stage1/:stage2/…` для QA.
 - `compose.ai.yaml`:
   ```yaml
   ai-service:   build ./ai-service; env_file .env; volumes: tts_cache:/data/tts;
@@ -105,7 +105,7 @@ ai-service/
 Приёмка: `docker compose up` на чистой машине без интернета (после `ollama-init`) →
 `/v1/health` = `ok`; образ передан QA (`docker save` или registry).
 
-**PY-02 — очередь, идемпотентность, callback.** *(1 день, до M0)*
+**PY-02 — очередь, идемпотентность, callback.** *(1 день, этап 1)*
 
 - `core/queue.py`:
   - Полосы: `llm` (семафор 1, **PriorityQueue** с ключом `(class, priority, seq)`,
@@ -128,7 +128,7 @@ ai-service/
 
 ## 3. Слои оценки и движки
 
-**PY-03 — грамматика (LanguageTool).** *(0.5 дня, M1)*
+**PY-03 — грамматика (LanguageTool).** *(0.5 дня, этап 2)*
 
 - Клиент `POST /v2/check` (`language=ru-RU`, `enabledOnly=false`, `disabledRules`
   из `options.exclude_rules` + дефолтный список шумных правил, который соберёт QA:
@@ -146,7 +146,7 @@ ai-service/
 Приёмка: 10 фикстур из `tests/fixtures/grammar/` (текст → ожидаемые E/W) проходят;
 адрес «ул. Ленина, д. 14, кв. 7» даёт 0 ошибок.
 
-**PY-04 — клиент Ollama и реестр промптов.** *(0.5 дня, M1)*
+**PY-04 — клиент Ollama и реестр промптов.** *(0.5 дня, этап 2)*
 
 - `engines/llm/ollama.py`: `chat(profile, messages, json_schema) -> (obj, Engine)`.
   `POST /api/chat` с `format` = JSON-схема выхода (Ollama ≥ 0.5 поддерживает schema;
@@ -174,7 +174,7 @@ ai-service/
   `dialog_fast` = 3b — Ollama будет свапать. **Решение по bench (ML-02/03)**: либо
   всё на одной модели, либо 7b-оценка только ночью/после занятия. До bench — всё на 3b.
 
-**PY-05 — семантика (слой 3).** *(1 день, M1)*
+**PY-05 — семантика (слой 3).** *(1 день, этап 2)*
 
 - Вход: `SemanticJobRequest` (режимы `cards` и `card_actions`).
 - Промпт `semantic/v1`: экзаменатор; ему даются `required_facts`, `forbidden_facts`,
@@ -197,7 +197,7 @@ ai-service/
 совпадение по missing_facts ≥ 80 %; один и тот же вход ×3 при temperature 0 даёт
 один и тот же score.
 
-**PY-06 — STT.** *(1 день, M1)*
+**PY-06 — STT.** *(1 день, этап 2)*
 
 - `engines/stt/base.py`: `class SttEngine: transcribe(audio: bytes, mime, opts) -> SttResult`.
   Выбор через `STT_ENGINE` (`faster_whisper` | `gigaam` | `vosk`) — по итогам ML-01
@@ -220,7 +220,7 @@ ai-service/
 Приёмка: bench-набор QA-04 (см. `ml-research.md`) прогоняется `bench/stt_eval.py`;
 RTF ≤ 0.4 на стенде; «улица Ленина дом четырнадцать подъезд три» → «улица Ленина дом 14 подъезд 3».
 
-**PY-08 — TTS.** *(0.5 дня, M1; раньше PY-07, потому что нужен ему)*
+**PY-08 — TTS.** *(0.5 дня, этап 2)*
 
 - `engines/tts/silero.py`: загрузка `v4_ru.pt` через `torch.package` (без torch.hub —
   офлайн), `apply_tts(text, speaker, sample_rate=24000)`, запись wav 16-bit mono.
@@ -240,7 +240,7 @@ RTF ≤ 0.4 на стенде; «улица Ленина дом четырнад
 Приёмка: 20 фраз из `tests/fixtures/tts/` (адреса, телефоны, сокращения) — на слух
 без «дэ», «ка-вэ» и латиницы (проверяет QA, ML-04); RTF ≤ 0.3.
 
-**PY-07 — ход диалога (главная задача).** *(1.5 дня, M2)*
+**PY-07 — ход диалога (главная задача).** *(1.5 дня, этап 3)*
 
 - `POST /v1/dialog/turn` (multipart `request` + `audio`, либо JSON с `operator_text`).
 - `tasks/dialog_turn.py`:
@@ -285,7 +285,7 @@ RTF ≤ 0.4 на стенде; «улица Ленина дом четырнад
 - «помощь направлена, оставайтесь на связи» → `should_end=true` в ≤ 2 хода;
 - Ollama остановлен → ответ приходит из `turns[]`, `fallback=true`, 200.
 
-**PY-09 — оценка разговора (слой dialogue).** *(1 день, M3)*
+**PY-09 — оценка разговора (слой dialogue).** *(1 день, этап 4)*
 
 - `POST /v1/jobs/dialogue` → задача `evaluate_dialogue` (полоса LLM, class 1).
 - `tasks/speech_metrics.py` — **без LLM, всегда**: `operator_turns/words/talk_ms`,
@@ -309,7 +309,7 @@ RTF ≤ 0.4 на стенде; «улица Ленина дом четырнад
 Приёмка: golden set QA-06 (≥ 30 транскриптов с ручной разметкой чек-листа):
 точность статусов пунктов ≥ 80 %, Spearman по score ≥ 0.7 (ML-03).
 
-**PY-10 — генерация сценария с брифом и чек-листом.** *(1 день, M2)*
+**PY-10 — генерация сценария с брифом и чек-листом.** *(1 день, этап 3)*
 
 - Промпт `generate/v1` по `spec` (категория, признаки опросной карты, службы,
   сложность, `teacher_comment`, `avoid_titles`). Выход — `ScenarioResult` целиком:
@@ -333,7 +333,7 @@ RTF ≤ 0.4 на стенде; «улица Ленина дом четырнад
 
 ## 4. Качество, наблюдаемость, тесты
 
-**PY-11 — наблюдаемость.** *(0.5 дня, M3)*
+**PY-11 — наблюдаемость.** *(0.5 дня, этап 4)*
 - Структурные JSON-логи (`structlog`/`logging` + JSON formatter) с `request_id`,
   `attempt_id`, `type`, `profile`, стадии и длительности. Уровень из `LOG_LEVEL`.
 - `/v1/queue` уже покрывает панель преподавателя; `/metrics` Prometheus — опционально (P1).
@@ -354,22 +354,23 @@ RTF ≤ 0.4 на стенде; «улица Ленина дом четырнад
   callback'и в sink → выводит таблицу длительностей. **Это главный инструмент QA.**
 - `make` цели в `ai-service/Makefile`: `run`, `test`, `lint` (ruff), `smoke`, `bench-stt`, `bench-llm`, `image`.
 
-**PY-13 — документация.** *(0.5 дня, M4)*
+**PY-13 — документация.** *(0.5 дня, этап 5)*
 - `ai-service/README.md`: запуск, env, профили, как поменять модель, как добавить
   STT-движок, лимиты и ожидаемые задержки на CPU, известные ограничения.
 - Model card в `docs/model-selection.md` (совместно, ML-07): выбранные модели, метрики,
   датасеты, версии промптов, формулы баллов и их версии.
 - ТЗ требует «описание методов и ограничений» — это оно.
 
-## 5. Порядок и приоритеты
+## 5. Порядок (что за чем идёт)
 
 ```
-M0 22.09: PY-01, PY-02                                   (образ у QA)
-M1 24.09: PY-08 → PY-06 → PY-04 → PY-03 → PY-05           (движки живые)
-M2 26.09: PY-07 (диалог) → PY-10 (генерация)              (сквозной ход через go-core)
-M3 28.09: PY-09 (оценка диалога) → PY-11, PY-12 добить
-M4 29.09: PY-13, образ :release, ollama_models tar для стенда
+Этап 1: PY-01 → PY-02                                  (образ у QA)
+Этап 2: PY-08 → PY-06 → PY-04 → PY-03 → PY-05          (движки живые; PY-08 раньше PY-07, т.к. нужен ему)
+Этап 3: PY-07 (диалог) → PY-10 (генерация)             (сквозной ход через go-core)
+Этап 4: PY-09 (оценка диалога) → PY-11, PY-12 добить
+Этап 5: PY-13, образ :release, ollama_models tar для стенда
 ```
+Оценки в днях у задач — ориентир для распределения, не дедлайны.
 
 Если не успеваем — режем в таком порядке: эмоции TTS (P1) → `eval_dialogue` на 7b
 (всё на 3b) → `tone` в оценке диалога (только чек-лист + метрики) → генерация
