@@ -29,11 +29,14 @@ components:
 
     JobType:
       type: string
-      enum: [evaluate_grammar, evaluate_semantic, generate_scenario, tts]
+      enum: [evaluate_grammar, evaluate_semantic, evaluate_dialogue, generate_scenario, tts]
+      description: >
+        evaluate_dialogue — оценка разговора оператора с заявителем (голосовой
+        режим): протокол опроса, речевые метрики, тон. Добавлен v1.1.
 
     Profile:
       type: string
-      enum: [eval_fast, eval_thorough, generate, tts_default]
+      enum: [eval_fast, eval_thorough, eval_dialogue, generate, dialog_fast, tts_default, stt_default]
       description: >
         Профиль модели/промпта. Маппинг профиль -> (модель, промпт, лимиты) живёт
         в конфиге ai-service и настройках админа (settings), НЕ в контракте:
@@ -82,9 +85,18 @@ components:
           description: >
             Факты, которые заявитель сообщает по ходу звонка. Источник для
             required_facts эталона и опора семантической проверки.
+            В голосовом режиме — плоская проекция dialogue.facts[].text
+            (сохранена для обратной совместимости и текстового режима).
+        dialogue:
+          $ref: '#/components/schemas/DialogueBrief'
         turns:
           type: array
           minItems: 1
+          description: >
+            Сценарные реплики. В текстовом режиме проигрываются последовательно.
+            В голосовом режиме turns[0] — вступительная реплика заявителя
+            (озвучена заранее, tts_hash), остальные — резерв на случай
+            недоступности LLM (fallback-режим: реплики по кругу).
           items:
             type: object
             required: [speaker, text]
@@ -170,6 +182,178 @@ components:
         turn_no: {type: integer, minimum: 1}
         prompt_text: {type: string, description: "реплика заявителя, на которую отвечали"}
         answer_text: {type: string}
+
+
+    # ------------------------------------------------------- голосовой режим
+
+    DialogueFact:
+      type: object
+      description: >
+        Единица знания заявителя. Каллер-LLM может сообщить факт только если
+        reveal позволяет: volunteer — говорит сам (в панике — сумбурно),
+        on_request — только если оператор спросил (hints — о чём именно),
+        never — знает, но не скажет (проверка на домыслы оператора).
+      required: [id, text, reveal]
+      properties:
+        id: {type: string, description: 'короткий стабильный id: "smoke_5th_floor"'}
+        text: {type: string}
+        reveal: {type: string, enum: [volunteer, on_request, never]}
+        hints:
+          type: array
+          items: {type: string}
+          description: 'ключевые слова вопроса оператора, по которым факт раскрывается: ["этаж", "где горит"]'
+
+    DialogueBrief:
+      type: object
+      description: >
+        Бриф для LLM-заявителя (голосовой/интерактивный режим). Генерируется
+        вместе со сценарием, правится преподавателем. Студенту НЕ отдаётся.
+      required: [persona, facts]
+      properties:
+        persona:
+          type: string
+          description: 'портрет для system-промпта: "женщина ~60 лет, соседка, напугана, говорит быстро, сбивается"'
+        speaking_style:
+          type: string
+          description: 'манера: "короткие фразы, переспрашивает, вставляет «ой», «господи»"'
+        facts:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/DialogueFact'
+        unknowns:
+          type: array
+          items: {type: string}
+          description: 'чего заявитель НЕ знает — на такие вопросы отвечает «не знаю/не вижу»: ["номер квартиры", "есть ли газ"]'
+        end_conditions:
+          type: array
+          items: {type: string}
+          description: 'когда заявитель готов закончить: ["оператор сказал, что помощь направлена", "прошло 8 реплик"]'
+        max_turns:
+          type: integer
+          minimum: 2
+          maximum: 40
+          default: 12
+          description: предохранитель от бесконечного диалога
+
+    DialogueChecklistItem:
+      type: object
+      description: Пункт протокола приёма вызова, который оператор обязан выполнить в разговоре.
+      required: [id, text, kind, required]
+      properties:
+        id: {type: string, description: '"ask_address", "ask_casualties", "say_help_dispatched"'}
+        text: {type: string, description: 'формулировка для отчёта: "Уточнил точный адрес (дом, подъезд, этаж)"'}
+        kind:
+          type: string
+          enum: [question, instruction, phrase, behavior]
+          description: >
+            question — оператор должен спросить; instruction — дать указание
+            заявителю; phrase — произнести формулу («помощь направлена»);
+            behavior — поведенческое («не перебивал», «говорил спокойно»).
+        required: {type: boolean}
+        weight: {type: number, minimum: 0, default: 1}
+        hints:
+          type: array
+          items: {type: string}
+          description: опорные слова/смыслы для LLM-проверки — не строгое совпадение
+
+    ExpectedDialogue:
+      type: object
+      description: >
+        Эталон разговора (etalons.expected_dialogue). Проверяется ai-service
+        по транскрипту (evaluate_dialogue). Базовый чек-лист по категории
+        генерируется LLM и правится преподавателем.
+      required: [checklist]
+      properties:
+        checklist:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/DialogueChecklistItem'
+        forbidden:
+          type: array
+          items: {type: string}
+          description: 'чего оператор говорить не должен: ["ждите", "перезвоните позже", грубость]'
+        max_operator_turns:
+          type: integer
+          description: ориентир на лаконичность; превышение — замечание, не штраф
+
+    DialogueTurn:
+      type: object
+      description: Реплика транскрипта разговора (источник — attempt_dialogue_turns / attempt_events).
+      required: [turn_no, speaker, text]
+      properties:
+        turn_no: {type: integer, minimum: 1}
+        speaker: {type: string, enum: [operator, caller]}
+        text: {type: string}
+        at_ms:
+          type: integer
+          minimum: 0
+          description: смещение от call_accepted_at — для пауз и времени реакции
+        audio_duration_ms: {type: integer, minimum: 0}
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: уверенность STT (operator) — низкая = не штрафовать за «ошибки» распознавания
+        source:
+          type: string
+          enum: [stt, text, script, llm]
+          description: 'stt — распознано; text — введено текстом (fallback); script — сценарная реплика; llm — сгенерирована'
+        revealed_fact_ids:
+          type: array
+          items: {type: string}
+          description: какие DialogueFact.id заявитель раскрыл этой репликой
+
+    SttSegment:
+      type: object
+      required: [start_ms, end_ms, text]
+      properties:
+        start_ms: {type: integer, minimum: 0}
+        end_ms: {type: integer, minimum: 0}
+        text: {type: string}
+        confidence: {type: number, minimum: 0, maximum: 1}
+
+    SttResult:
+      type: object
+      required: [text, audio_duration_ms]
+      properties:
+        text:
+          type: string
+          description: нормализованный текст (числа цифрами, ITN применён) — идёт в транскрипт
+        text_raw:
+          type: string
+          description: как выдала модель, до нормализации — для отладки и бенчей
+        language: {type: string, default: ru}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        audio_duration_ms: {type: integer, minimum: 0}
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SttSegment'
+        no_speech:
+          type: boolean
+          description: в аудио нет речи (тишина/шум) — фронт просит повторить, реплика в транскрипт не пишется
+
+    CallerReply:
+      type: object
+      description: Ответ LLM-заявителя на реплику оператора.
+      required: [text]
+      properties:
+        text: {type: string, description: 'реплика для озвучки, ≤ ~40 слов'}
+        emotional_state: {type: string, description: 'текущее состояние: паника / успокаивается / раздражён'}
+        revealed_fact_ids:
+          type: array
+          items: {type: string}
+        is_unknown_answer:
+          type: boolean
+          description: заявитель ответил «не знаю» (вопрос был про unknowns)
+        should_end:
+          type: boolean
+          description: заявитель готов положить трубку (end_conditions выполнены)
+        end_reason: {type: string}
+        tts:
+          $ref: '#/components/schemas/TtsResult'
 
     # --------------------------------------------------------------- результаты
 
@@ -258,6 +442,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ExpectedAction'
+        expected_dialogue:
+          $ref: '#/components/schemas/ExpectedDialogue'
         difficulty_estimate:
           type: integer
           minimum: 1
@@ -276,6 +462,84 @@ components:
         voice: {type: string}
         rate: {type: number}
 
+    DialogueChecklistResult:
+      type: object
+      required: [id, status]
+      properties:
+        id: {type: string}
+        status: {type: string, enum: [done, partial, missed, not_applicable]}
+        evidence_turn_no:
+          type: integer
+          description: реплика оператора, где пункт выполнен (для подсветки в UI)
+        comment: {type: string}
+
+    SpeechMetrics:
+      type: object
+      description: Детерминированные метрики речи оператора по транскрипту (без LLM).
+      required: [operator_turns, operator_words]
+      properties:
+        operator_turns: {type: integer, minimum: 0}
+        operator_words: {type: integer, minimum: 0}
+        operator_talk_ms: {type: integer, minimum: 0}
+        words_per_min: {type: number, minimum: 0}
+        filler_count: {type: integer, minimum: 0}
+        fillers:
+          type: object
+          additionalProperties: {type: integer}
+          description: '{"ну": 3, "эээ": 2, "короче": 1}'
+        avg_response_ms:
+          type: integer
+          description: средняя пауза между концом реплики заявителя и началом реплики оператора
+        max_response_ms: {type: integer}
+        low_confidence_turns:
+          type: integer
+          description: реплик с STT confidence ниже порога — их содержание оценивается мягче
+
+    ToneAssessment:
+      type: object
+      properties:
+        politeness: {$ref: '#/components/schemas/Score'}
+        calmness: {$ref: '#/components/schemas/Score'}
+        clarity: {$ref: '#/components/schemas/Score'}
+        comment: {type: string}
+
+    DialogueResult:
+      type: object
+      description: >
+        Результат оценки разговора (слой dialogue). score — сырой 0..100,
+        вес слоя и итог считает go-core.
+      required: [score, confidence, checklist, speech]
+      properties:
+        score:
+          $ref: '#/components/schemas/Score'
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        checklist:
+          type: array
+          items:
+            $ref: '#/components/schemas/DialogueChecklistResult'
+        missing_questions:
+          type: array
+          items: {type: string}
+          description: 'человекочитаемо: "не уточнил номер подъезда"'
+        forbidden_hits:
+          type: array
+          items:
+            type: object
+            required: [phrase, turn_no]
+            properties:
+              phrase: {type: string}
+              turn_no: {type: integer}
+        speech:
+          $ref: '#/components/schemas/SpeechMetrics'
+        tone:
+          $ref: '#/components/schemas/ToneAssessment'
+        summary_for_student:
+          type: string
+          description: 2–3 предложения; UI показывает как есть
+
     Engine:
       type: object
       description: >
@@ -288,6 +552,8 @@ components:
         lt_version: {type: string}
         rules_version: {type: string, description: версия формулы grammar.score}
         tts_version: {type: string}
+        stt_model: {type: string, description: '"faster-whisper:small-int8" / "gigaam:v2-ctc"'}
+        stt_version: {type: string}
         duration_ms: {type: integer, minimum: 0, description: чистое время вычисления}
         queue_wait_ms: {type: integer, minimum: 0, description: сколько задача ждала в очереди ai-service}
         tokens_in: {type: integer}
