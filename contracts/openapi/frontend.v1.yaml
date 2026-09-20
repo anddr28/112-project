@@ -1,0 +1,2398 @@
+# ============================================================================
+# Публичный API go-core для SPA (frontend). Сервер: go-core. Клиент: браузер.
+#
+# Источник истины для `frontend/src/shared/api/httpApi.ts` (реализация
+# интерфейса `shared/api/types.ts` поверх fetch) и для Go-хендлеров.
+# Кодоген типов: make generate-ts -> frontend/src/shared/api/gen/frontend.v1.d.ts
+#
+# Соглашения:
+#   * Формат на проводе — camelCase (зеркало TS-типов фронта, см. shared/types).
+#     Внутренний контракт go<->python остаётся snake_case; go-core маппит.
+#   * База: /api/v1. Все ответы JSON, ошибки — ApiError {code, message, details}.
+#   * Аутентификация: httpOnly cookie `lct_session` (auth_sessions в БД),
+#     SameSite=Strict; мутирующие запросы несут заголовок `X-Requested-With: fetch`
+#     (CSRF-замок). WebSocket авторизуется той же cookie.
+#   * RBAC на сервере (ТЗ): 401 — нет сессии, 403 — роль не подходит.
+#     Роль указана в description каждого эндпоинта: [admin] [teacher] [student].
+#   * Студенту НИКОГДА не отдаются: etalon*, keyFacts, dialogue-бриф,
+#     expectedDialogue, revealedFactIds. Отдельные "student"-схемы это фиксируют.
+#   * Голосовой режим (v1.1): POST /attempts/{id}/dialogue/turns — синхронный ход
+#     диалога (аудио или текст) с ответом заявителя; аудио озвучки — GET /media/tts/…
+#     Микрофон в браузере требует secure context: фронт раздаётся по HTTPS
+#     (ТЗ: TLS внутри контура) — иначе getUserMedia недоступен.
+#   * Восстановление после обрыва ≤30 с (ТЗ): события попытки идут батчами
+#     с clientSeq (идемпотентность), черновик — целиком (upsert), WS — reconnect
+#     с `since` (последний полученный seq).
+# ============================================================================
+openapi: 3.0.3
+info:
+  title: LCT go-core — public API for frontend
+  version: "1.1"
+servers:
+  - url: /api/v1
+security:
+  - SessionCookie: []
+
+tags:
+  - {name: auth, description: сессии}
+  - {name: classifier, description: 'классификатор, службы, адреса'}
+  - {name: users, description: администрирование учётных записей}
+  - {name: scenarios, description: 'сценарии, эталоны, генерация'}
+  - {name: lessons, description: 'занятия и назначения'}
+  - {name: attempts, description: 'попытки, черновики, события'}
+  - {name: dialogue, description: голосовой/интерактивный разговор с заявителем}
+  - {name: evaluation, description: 'результаты, ревью, обратная связь'}
+  - {name: admin, description: 'здоровье контура, настройки'}
+  - {name: ws, description: WebSocket-каналы (описаны как GET с x-websocket)}
+
+paths:
+  # ==================================================================== auth
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      summary: Вход по логину/паролю; ставит cookie сессии
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          description: Сессия создана
+          headers:
+            Set-Cookie:
+              schema: {type: string}
+              description: lct_session=…; HttpOnly; Secure; SameSite=Strict
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401':
+          description: Неверные логин/пароль
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+        '423':
+          description: Учётная запись заблокирована (code=user_blocked)
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Завершить сессию
+      responses:
+        '204': {description: 'Сессия удалена, cookie очищена'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: me
+      summary: Текущий пользователь (восстановление сессии при загрузке SPA)
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /auth/demo-accounts:
+    get:
+      tags: [auth]
+      operationId: demoAccounts
+      security: []
+      summary: Учебные учётные записи для демо-стенда; в боевом контуре — []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/DemoAccount'}
+
+  # ============================================================== classifier
+  /classifier/types:
+    get:
+      tags: [classifier]
+      operationId: listIncidentTypes
+      summary: Дерево классификатора происшествий (плоский список с depth)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/IncidentType'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /classifier/types/search:
+    get:
+      tags: [classifier]
+      operationId: searchIncidentTypes
+      summary: Поиск типа (часть слова, синонимы, любой порядок слов — правила на сервере)
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 1}}
+        - {name: limit, in: query, schema: {type: integer, default: 20, maximum: 100}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/IncidentType'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /classifier/featured:
+    get:
+      tags: [classifier]
+      operationId: featuredIncidentTypes
+      summary: Частые и значимые типы для быстрого выбора в карточке
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [frequent, significant]
+                properties:
+                  frequent: {type: array, items: {$ref: '#/components/schemas/IncidentType'}}
+                  significant: {type: array, items: {$ref: '#/components/schemas/IncidentType'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /classifier/types/{typeId}/attributes:
+    get:
+      tags: [classifier]
+      operationId: incidentTypeAttributes
+      summary: Опросная карта категории (метаданные признаков — GAP-20)
+      parameters:
+        - {$ref: '#/components/parameters/typeId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AttributeGroup'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /classifier/types/{typeId}/reference:
+    get:
+      tags: [classifier]
+      operationId: incidentTypeReference
+      summary: Справочная страница по типу (если есть)
+      parameters:
+        - {$ref: '#/components/parameters/typeId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exists]
+                properties:
+                  exists: {type: boolean}
+                  text: {type: string, description: markdown}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /classifier/labels:
+    get:
+      tags: [classifier]
+      operationId: classifierLabels
+      summary: Подписи для технических кодов (поля карточки, признаки, значения, типы)
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/ClassifierLabels'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /classifier/resolve-services:
+    post:
+      tags: [classifier]
+      operationId: resolveServices
+      summary: Определение служб по типам/признакам/адресу (GAP-21, правила на сервере)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResolveServicesRequest'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/ResolvedServicesResult'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /services:
+    get:
+      tags: [classifier]
+      operationId: listServices
+      summary: Справочник служб (ДДС)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/ServiceRef'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /address/suggest:
+    get:
+      tags: [classifier]
+      operationId: suggestAddress
+      summary: Подсказки адреса (локальный справочник улиц Москвы, без интернета)
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 2}}
+        - {name: limit, in: query, schema: {type: integer, default: 10, maximum: 30}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AddressSuggestion'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  # =================================================================== users
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: '[admin][teacher] Список пользователей (преподавателю — только студенты своих групп)'
+      parameters:
+        - {name: role, in: query, schema: {$ref: '#/components/schemas/Role'}}
+        - {name: q, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/User'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: '[admin] Создать учётную запись (J-01)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateUserInput'}
+      responses:
+        '201':
+          description: Создано
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: Логин занят
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /users/{userId}:
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: '[admin] Изменить роль/ФИО/службу/пароль (J-02, J-03)'
+      parameters:
+        - {$ref: '#/components/parameters/userId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateUserInput'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /users/{userId}/blocked:
+    put:
+      tags: [users]
+      operationId: setUserBlocked
+      summary: '[admin] Заблокировать/разблокировать (J-04, J-05); активные сессии инвалидируются'
+      parameters:
+        - {$ref: '#/components/parameters/userId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked]
+              properties:
+                blocked: {type: boolean}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # =============================================================== scenarios
+  /scenarios:
+    get:
+      tags: [scenarios]
+      operationId: listScenarios
+      summary: '[teacher] Сценарии (все статусы) с фильтрами'
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/ScenarioStatus'}}
+        - {name: categoryId, in: query, schema: {type: string}}
+        - {name: mode, in: query, schema: {type: string, enum: [cards, card_actions, both]}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Scenario'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [scenarios]
+      operationId: createScenario
+      summary: '[teacher] Создать сценарий вручную (source=manual, status=draft)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateScenarioInput'}
+      responses:
+        '201':
+          description: Создано
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /scenarios/generate:
+    post:
+      tags: [scenarios]
+      operationId: generateScenario
+      summary: '[teacher] Запустить генерацию сценария LLM (асинхронно: ai_jobs)'
+      description: >
+        Создаёт scenarios(status=draft, source=generated) и задачу generate_scenario.
+        Фронт опрашивает GET /ai-jobs/{jobId} (или ждёт WS `scenarioGenerated`),
+        затем открывает сценарий на валидацию. Сценарий приходит с dialogue-брифом
+        и expectedDialogue (чек-лист протокола) — оба правятся преподавателем.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GenerateScenarioInput'}
+      responses:
+        '202':
+          description: Принято
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId, scenarioId]
+                properties:
+                  jobId: {type: string, format: uuid}
+                  scenarioId: {type: string, format: uuid}
+                  estWaitSec: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/AiUnavailable'}
+
+  /scenarios/{scenarioId}:
+    get:
+      tags: [scenarios]
+      operationId: getScenario
+      summary: '[teacher] Сценарий целиком (с эталоном, брифом, чек-листом)'
+      parameters:
+        - {$ref: '#/components/parameters/scenarioId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [scenarios]
+      operationId: updateScenario
+      summary: '[teacher] Правка сценария/эталона; изменение эталона создаёт новую версию'
+      parameters:
+        - {$ref: '#/components/parameters/scenarioId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ScenarioPatch'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Сценарий validated и используется в занятии — правка только копией
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /scenarios/{scenarioId}/approve:
+    post:
+      tags: [scenarios]
+      operationId: approveScenario
+      summary: '[teacher] Валидировать: status=validated; go-core ставит TTS-задачи на все реплики'
+      parameters:
+        - {$ref: '#/components/parameters/scenarioId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422':
+          description: Нельзя валидировать — нет эталона / пустой чек-лист при включённом голосе
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /scenarios/{scenarioId}/reject:
+    post:
+      tags: [scenarios]
+      operationId: rejectScenario
+      summary: '[teacher] Отклонить сгенерированный сценарий с причиной'
+      parameters:
+        - {$ref: '#/components/parameters/scenarioId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 3}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /scenarios/{scenarioId}/tts-preview:
+    post:
+      tags: [scenarios]
+      operationId: ttsPreview
+      summary: '[teacher] Прослушать реплику голосом заявителя (синхронно, ai-service /v1/tts/sync)'
+      parameters:
+        - {$ref: '#/components/parameters/scenarioId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 500}
+                voice: {type: string}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/AudioRef'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/AiUnavailable'}
+
+  /ai-jobs/{jobId}:
+    get:
+      tags: [scenarios]
+      operationId: getAiJob
+      summary: '[teacher][admin] Статус фоновой AI-задачи (генерация, переоценка)'
+      parameters:
+        - {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/AiJob'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ================================================================= lessons
+  /lessons/default-settings:
+    get:
+      tags: [lessons]
+      operationId: lessonDefaultSettings
+      summary: '[teacher] Параметры занятия по умолчанию (settings: веса, порог, норматив, голос)'
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/LessonSettings'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /lessons:
+    get:
+      tags: [lessons]
+      operationId: listLessons
+      summary: '[teacher] Занятия преподавателя'
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/LessonStatus'}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Lesson'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [lessons]
+      operationId: createLesson
+      summary: '[teacher] Создать занятие (status=draft)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateLessonInput'}
+      responses:
+        '201':
+          description: Создано
+          content: {application/json: {schema: {$ref: '#/components/schemas/Lesson'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422':
+          description: В занятии с голосом есть сценарий без dialogue-брифа/чек-листа
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /lessons/assigned:
+    get:
+      tags: [lessons]
+      operationId: assignedLessons
+      summary: '[student] Мои занятия с текущей попыткой (если выдана)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [lesson]
+                  properties:
+                    lesson: {$ref: '#/components/schemas/Lesson'}
+                    attempt: {$ref: '#/components/schemas/Attempt'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /lessons/{lessonId}:
+    get:
+      tags: [lessons]
+      operationId: getLesson
+      summary: '[teacher][student-участник] Занятие'
+      parameters:
+        - {$ref: '#/components/parameters/lessonId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Lesson'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /lessons/{lessonId}/start:
+    post:
+      tags: [lessons]
+      operationId: startLesson
+      summary: '[teacher] Запустить: выдать попытки участникам, status=running'
+      parameters:
+        - {$ref: '#/components/parameters/lessonId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Lesson'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Занятие уже запущено/завершено
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /lessons/{lessonId}/finish:
+    post:
+      tags: [lessons]
+      operationId: finishLesson
+      summary: '[teacher] Завершить: незавершённые попытки -> expired, отчёт доступен'
+      parameters:
+        - {$ref: '#/components/parameters/lessonId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Lesson'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /lessons/{lessonId}/attempts:
+    get:
+      tags: [lessons]
+      operationId: lessonAttempts
+      summary: '[teacher] Попытки занятия (для мониторинга и отчёта)'
+      parameters:
+        - {$ref: '#/components/parameters/lessonId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Attempt'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ================================================================ attempts
+  /attempts/{attemptId}:
+    get:
+      tags: [attempts]
+      operationId: getAttempt
+      summary: '[student-владелец][teacher] Попытка (serverNow — база таймера)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Attempt'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /attempts/{attemptId}/accept-call:
+    post:
+      tags: [attempts]
+      operationId: acceptCall
+      summary: '[student] Принять вызов: callAcceptedAt=now, старт таймера, открывается карточка'
+      description: >
+        Идемпотентно: повторный вызов возвращает ту же попытку. В ответе — попытка
+        и вступительная реплика заявителя с аудио (голосовой режим), чтобы фронт
+        начал воспроизведение сразу по жесту пользователя (autoplay policy).
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attempt]
+                properties:
+                  attempt: {$ref: '#/components/schemas/Attempt'}
+                  opening: {$ref: '#/components/schemas/DialogueTurnView'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Попытка не в статусе issued/in_progress
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/call-script:
+    get:
+      tags: [attempts]
+      operationId: studentCallScript
+      summary: '[student] Урезанная легенда: без keyFacts, эталона и брифа (GAP-11)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentCallScript'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /attempts/{attemptId}/draft:
+    get:
+      tags: [attempts]
+      operationId: getDraft
+      summary: '[student] Черновик карточки (attempt_drafts); пустая карточка, если нет'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/IncidentCardDraft'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      tags: [attempts]
+      operationId: putDraft
+      summary: '[student] Автосохранение — черновик целиком (upsert)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IncidentCardDraft'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [savedAt]
+                properties:
+                  savedAt: {type: string, format: date-time}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: Попытка уже завершена — черновик не принимается
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/events:
+    get:
+      tags: [attempts]
+      operationId: attemptEvents
+      summary: '[teacher][student-владелец] Хронология действий'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AttemptEvent'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [attempts]
+      operationId: postAttemptEvents
+      summary: '[student] Батч событий; clientSeq — идемпотентность при reconnect'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items: {$ref: '#/components/schemas/AttemptEventInput'}
+      responses:
+        '200':
+          description: Принято (дубли по clientSeq отброшены молча)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, lastSeq]
+                properties:
+                  accepted: {type: integer}
+                  lastSeq: {type: integer, description: максимальный сохранённый clientSeq}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /attempts/{attemptId}/services:
+    post:
+      tags: [attempts]
+      operationId: addAttemptService
+      summary: '[student] Добавить службу вручную в карточку'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceCode]
+              properties:
+                serviceCode: {type: string}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/AssignedService'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /attempts/{attemptId}/services/{serviceId}:
+    delete:
+      tags: [attempts]
+      operationId: removeAttemptService
+      summary: '[student] Снять службу (только до терминального статуса)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+        - {$ref: '#/components/parameters/serviceId'}
+      responses:
+        '204': {description: 'Снята'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Служба в терминальном статусе
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/services/{serviceId}/status:
+    post:
+      tags: [attempts]
+      operationId: changeServiceStatus
+      summary: '[student] Сменить статус реагирования (переходы валидирует сервер — B-07)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+        - {$ref: '#/components/parameters/serviceId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeStatusInput'}
+      responses:
+        '200':
+          description: OK — с обновлённым allowedNext
+          content: {application/json: {schema: {$ref: '#/components/schemas/AssignedService'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: Переход недопустим из текущего статуса
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/replay:
+    post:
+      tags: [attempts]
+      operationId: replayCall
+      summary: '[student] Переспросить заявителя: replayCount++, событие replay'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [replayCount]
+                properties:
+                  replayCount: {type: integer}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /attempts/{attemptId}/submit:
+    post:
+      tags: [attempts]
+      operationId: submitAttempt
+      summary: '[student] Сохранить карточку: submitted -> мгновенно поля+тайминг (partial) -> AI-слои'
+      description: >
+        Идемпотентно (повтор — 200 с той же попыткой). Если диалог ещё не завершён,
+        go-core завершает его (callEndedAt=submittedAt) и ставит evaluate_dialogue.
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [card]
+              properties:
+                card: {$ref: '#/components/schemas/IncidentCardDraft'}
+                actionText: {type: string, description: режим card_actions}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Attempt'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: Попытка не в in_progress
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  # ================================================================ dialogue
+  /attempts/{attemptId}/dialogue:
+    get:
+      tags: [dialogue]
+      operationId: getDialogue
+      summary: '[student-владелец][teacher] Транскрипт разговора (восстановление после обрыва, отчёт)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/DialogueState'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /attempts/{attemptId}/dialogue/turns:
+    post:
+      tags: [dialogue]
+      operationId: dialogueTurn
+      summary: '[student] Реплика оператора (аудио push-to-talk или текст) -> ответ заявителя'
+      description: >
+        Синхронный ход: go-core собирает контекст (легенда+бриф, история, раскрытые
+        факты) и вызывает ai-service /v1/dialog/turn. Таймаут 20 с. Сохраняет две
+        реплики (operator, caller), пушит их в WS мониторинга преподавателя.
+        При noSpeech=true реплика оператора не сохраняется, заявитель переспрашивает.
+        Аудио оператора НЕ хранится (только транскрипт). Клиентский `turnNo`
+        нужен для идемпотентности при повторе запроса после обрыва.
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [turnNo, audio]
+              properties:
+                turnNo: {type: integer, minimum: 1}
+                audio:
+                  type: string
+                  format: binary
+                  description: audio/webm;codecs=opus (Chrome/Firefox/Яндекс) или audio/wav; ≤ 60 с, ≤ 2 МБ
+                clientRecordedAt: {type: string, format: date-time}
+          application/json:
+            schema:
+              type: object
+              required: [turnNo, text]
+              properties:
+                turnNo: {type: integer, minimum: 1}
+                text: {type: string, maxLength: 1000, description: текстовый fallback / текстовый режим занятия}
+      responses:
+        '200':
+          description: Ход обработан
+          content: {application/json: {schema: {$ref: '#/components/schemas/DialogueTurnResponse'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: Разговор завершён / попытка не in_progress / turnNo уже обработан (в details — сохранённый ответ)
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+        '413':
+          description: Аудио слишком длинное/большое
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+        '415':
+          description: Неподдерживаемый формат аудио
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+        '503':
+          description: 'AI-полоса перегружена или недоступна: code=caller_busy — фронт показывает «заявитель не отвечает, повторите» и НЕ ломает попытку'
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/dialogue/end:
+    post:
+      tags: [dialogue]
+      operationId: endDialogue
+      summary: '[student] Положить трубку (разговор завершён, карточку можно дозаполнить)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/DialogueState'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /media/tts/{path}:
+    get:
+      tags: [dialogue]
+      operationId: getTtsAudio
+      summary: Аудиофайл озвучки из shared volume tts_cache (только авторизованным)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: {type: string}
+          description: относительный путь из AudioRef.audioUrl; `..` запрещён
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: {schema: {type: string}, description: 'private, max-age=86400 — контент content-addressed'}
+          content:
+            audio/wav: {schema: {type: string, format: binary}}
+            audio/ogg: {schema: {type: string, format: binary}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ============================================================== evaluation
+  /attempts/{attemptId}/evaluation:
+    get:
+      tags: [evaluation]
+      operationId: getEvaluation
+      summary: '[student-владелец][teacher] Результат проверки (partial/done)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Evaluation'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: Оценки ещё нет (попытка не отправлена) — фронт трактует как null
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /attempts/{attemptId}/evaluation/override:
+    post:
+      tags: [evaluation]
+      operationId: overrideEvaluation
+      summary: '[teacher] Ручная корректировка балла с причиной (audit_log)'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score, reason]
+              properties:
+                score: {type: number, minimum: 0, maximum: 100}
+                reason: {type: string, minLength: 3}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Evaluation'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /attempts/{attemptId}/feedback:
+    get:
+      tags: [evaluation]
+      operationId: listFeedback
+      summary: '[teacher][student-владелец] Комментарии преподавателя'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/TeacherFeedback'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [evaluation]
+      operationId: addFeedback
+      summary: '[teacher] Добавить комментарий/рекомендацию'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                field: {type: string}
+                comment: {type: string, minLength: 1}
+                recommendation: {type: string}
+      responses:
+        '201':
+          description: Создано
+          content: {application/json: {schema: {$ref: '#/components/schemas/TeacherFeedback'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /reaction/transitions:
+    get:
+      tags: [attempts]
+      operationId: reactionTransitions
+      summary: Допустимые переходы статуса (справочно; в боевом потоке приходят внутри AssignedService.allowedNext)
+      parameters:
+        - {name: current, in: query, required: true, schema: {$ref: '#/components/schemas/ReactionStatus'}}
+        - {name: serviceCode, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AllowedTransition'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  # =================================================================== admin
+  /admin/health:
+    get:
+      tags: [admin]
+      operationId: systemHealth
+      summary: '[admin] Состояние контура: go-core, PostgreSQL, ai-service (+ модели), очередь'
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/SystemHealth'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /admin/settings:
+    get:
+      tags: [admin]
+      operationId: listSettings
+      summary: '[admin] Настройки платформы (settings)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Setting'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /admin/settings/{key}:
+    put:
+      tags: [admin]
+      operationId: updateSetting
+      summary: '[admin] Изменить настройку (value — jsonb; аудит)'
+      parameters:
+        - {name: key, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: {}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Setting'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ====================================================================== ws
+  /ws/lessons/{lessonId}/monitor:
+    get:
+      tags: [ws]
+      operationId: wsLessonMonitor
+      x-websocket: true
+      summary: '[teacher] Живой мониторинг занятия (GAP-18). Сервер -> клиент: MonitorMessage'
+      description: >
+        Подключение: `wss://host/api/v1/ws/lessons/{lessonId}/monitor?since={seq}`.
+        Сервер шлёт `snapshot` при подключении, затем события по мере поступления.
+        Каждое сообщение несёт монотонный `seq`; при reconnect клиент передаёт
+        `since` и получает пропущенное (буфер 5 мин). Пинг/понг каждые 20 с.
+      parameters:
+        - {$ref: '#/components/parameters/lessonId'}
+        - {name: since, in: query, schema: {type: integer, minimum: 0}}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /ws/attempts/{attemptId}:
+    get:
+      tags: [ws]
+      operationId: wsAttempt
+      x-websocket: true
+      summary: '[student] Канал попытки: готовность оценки, завершение занятия. Сервер -> клиент: StudentMessage'
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+# ============================================================================
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: lct_session
+
+  parameters:
+    typeId: {name: typeId, in: path, required: true, schema: {type: string}}
+    userId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    scenarioId: {name: scenarioId, in: path, required: true, schema: {type: string, format: uuid}}
+    lessonId: {name: lessonId, in: path, required: true, schema: {type: string, format: uuid}}
+    attemptId: {name: attemptId, in: path, required: true, schema: {type: string, format: uuid}}
+    serviceId: {name: serviceId, in: path, required: true, schema: {type: string}}
+
+  responses:
+    BadRequest:
+      description: Невалидный запрос (details.fields — ошибки по полям)
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+    Unauthorized:
+      description: Нет сессии / сессия истекла (code=unauthorized)
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+    Forbidden:
+      description: Роль не имеет доступа (code=forbidden)
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+    NotFound:
+      description: Не найдено (code=not_found)
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+    TooManyRequests:
+      description: Rate limit (логин — 5/мин на IP)
+      headers:
+        Retry-After: {schema: {type: integer}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+    AiUnavailable:
+      description: ai-service недоступен (breaker open) — code=ai_unavailable
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  schemas:
+    # ------------------------------------------------------------- общее
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >
+            машинный код: unauthorized | forbidden | not_found | validation |
+            conflict | user_blocked | ai_unavailable | caller_busy | audio_too_long |
+            audio_unsupported | rate_limited | internal
+        message: {type: string, description: 'человекочитаемо, по-русски, показывается как есть'}
+        details:
+          type: object
+          additionalProperties: true
+
+    Role: {type: string, enum: [admin, teacher, student]}
+    UserStatus: {type: string, enum: [active, blocked]}
+    ScenarioStatus: {type: string, enum: [draft, generated, validated, rejected, archived]}
+    ScenarioSource: {type: string, enum: [generated, manual, ticket, student]}
+    LessonKind: {type: string, enum: [class, practice]}
+    LessonMode: {type: string, enum: [cards, card_actions]}
+    LessonStatus: {type: string, enum: [draft, scheduled, running, finished, cancelled]}
+    ParticipantStatus: {type: string, enum: [assigned, joined, active, disconnected, finished]}
+    AttemptStatus: {type: string, enum: [issued, in_progress, submitted, evaluating, evaluated, expired, aborted]}
+    EvaluationStatus: {type: string, enum: [pending, partial, done, failed]}
+    Verdict: {type: string, enum: [pending, pass, fail]}
+    Difficulty: {type: integer, enum: [1, 2, 3]}
+    ArmPerspective:
+      type: string
+      enum: [operator112, dds]
+      description: 'GAP-07: хранится в lessons.settings.perspective'
+    Score: {type: number, minimum: 0, maximum: 100}
+
+    # -------------------------------------------------------------- auth
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login: {type: string}
+        password: {type: string, format: password}
+
+    DemoAccount:
+      type: object
+      required: [login, password, label]
+      properties:
+        login: {type: string}
+        password: {type: string}
+        label: {type: string}
+
+    User:
+      type: object
+      required: [id, login, role, lastName, firstName, status]
+      properties:
+        id: {type: string, format: uuid}
+        login: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        lastName: {type: string}
+        firstName: {type: string}
+        middleName: {type: string}
+        serviceId: {type: string}
+        serviceName: {type: string}
+        status: {$ref: '#/components/schemas/UserStatus'}
+        workstation: {type: string, description: номер АРМ для шапки}
+        operatorNo: {type: string, description: операторский номер в карточке}
+        groupIds:
+          type: array
+          items: {type: string, format: uuid}
+
+    CreateUserInput:
+      type: object
+      required: [login, password, role, lastName, firstName]
+      properties:
+        login: {type: string, minLength: 3}
+        password: {type: string, minLength: 8}
+        role: {$ref: '#/components/schemas/Role'}
+        lastName: {type: string}
+        firstName: {type: string}
+        middleName: {type: string}
+        serviceId: {type: string}
+        groupIds:
+          type: array
+          items: {type: string, format: uuid}
+
+    UpdateUserInput:
+      type: object
+      properties:
+        role: {$ref: '#/components/schemas/Role'}
+        lastName: {type: string}
+        firstName: {type: string}
+        middleName: {type: string}
+        serviceId: {type: string, nullable: true}
+        password: {type: string, minLength: 8}
+        groupIds:
+          type: array
+          items: {type: string, format: uuid}
+
+    # -------------------------------------------------------- classifier
+    ServiceRef:
+      type: object
+      required: [id, code, name, shortName, kind]
+      properties:
+        id: {type: string}
+        code: {type: string, description: 'GAP-08: «01».. в сиде, «101».. в реальном АРМ — решает сид'}
+        name: {type: string}
+        shortName: {type: string}
+        kind: {type: string, enum: [emergency, city]}
+
+    IncidentType:
+      type: object
+      required: [id, code, name, depth, synonyms, hasReference]
+      properties:
+        id: {type: string}
+        code: {type: string}
+        name: {type: string}
+        depth: {type: integer, minimum: 1, maximum: 3}
+        parentId: {type: string}
+        synonyms:
+          type: array
+          items: {type: string}
+        hasReference: {type: boolean}
+
+    AttributeOption:
+      type: object
+      required: [code, label]
+      properties:
+        code: {type: string}
+        label: {type: string}
+
+    AttributeGroup:
+      type: object
+      required: [code, label, widget, order]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        widget: {type: string, enum: [chips-single, chips-multi, bool, text, number]}
+        options:
+          type: array
+          items: {$ref: '#/components/schemas/AttributeOption'}
+        required: {type: boolean}
+        visibleWhen:
+          type: object
+          required: [attr, anyOf]
+          properties:
+            attr: {type: string}
+            anyOf:
+              type: array
+              items: {type: string}
+        order: {type: integer}
+
+    ClassifierLabels:
+      type: object
+      required: [fields, attributes, values, types]
+      properties:
+        fields:
+          type: object
+          additionalProperties: {type: string}
+        attributes:
+          type: object
+          additionalProperties: {type: string}
+        values:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: {type: string}
+        types:
+          type: object
+          additionalProperties: {type: string}
+
+    ResolveServicesRequest:
+      type: object
+      required: [typeIds, attributes, addressFilled, current]
+      properties:
+        typeIds:
+          type: array
+          items: {type: string}
+        attributes:
+          type: object
+          additionalProperties: true
+        addressFilled: {type: boolean}
+        addressSource: {$ref: '#/components/schemas/AddressSource'}
+        current:
+          type: array
+          items: {$ref: '#/components/schemas/AssignedService'}
+
+    ResolvedServicesResult:
+      type: object
+      required: [services, suppressedByAddressSource]
+      properties:
+        services:
+          type: array
+          items: {$ref: '#/components/schemas/AssignedService'}
+        suppressedByAddressSource: {type: boolean, description: 'Инструкция п.4.3: ФИАС — службы не подставляются'}
+
+    AddressSource: {type: string, enum: [yandex_map, yandex_org, fias, map_pick, manual]}
+
+    AddressDraft:
+      type: object
+      description: 'GAP-05: полный адрес реального АРМ (15 полей + координаты + источник)'
+      required: [raw]
+      properties:
+        raw: {type: string}
+        country: {type: string}
+        region: {type: string}
+        settlement: {type: string}
+        object: {type: string}
+        okrug: {type: string}
+        district: {type: string}
+        street: {type: string}
+        house: {type: string}
+        building: {type: string}
+        structure: {type: string}
+        apartment: {type: string}
+        entrance: {type: string}
+        floor: {type: string}
+        code: {type: string}
+        descriptive: {type: string}
+        lat: {type: number}
+        lon: {type: number}
+        source: {$ref: '#/components/schemas/AddressSource'}
+
+    AddressSuggestion:
+      type: object
+      required: [id, label, source, value]
+      properties:
+        id: {type: string}
+        label: {type: string}
+        source: {$ref: '#/components/schemas/AddressSource'}
+        value: {$ref: '#/components/schemas/AddressDraft'}
+
+    # ---------------------------------------------------- карточка (draft)
+    ApplicantStatus:
+      type: string
+      enum: [очевидец, пострадавший, родственник, знакомый, ребенок, участник]
+      description: Инструкция п.5.3 — закрытый список
+
+    IncidentCardDraft:
+      type: object
+      description: >
+        Карточка АРМ-112 как её видит оператор (attempts.card / attempt_drafts.data).
+        Расширение контрактного IncidentCard (GAP-01..06). Для ai-service go-core
+        строит проекцию IncidentCard (snake_case) — фронт этого не видит.
+      required: [phones, applicant, address, incidentTypeIds, attributes, description, actionsTaken, flags, services]
+      properties:
+        phones:
+          type: object
+          properties:
+            aon: {type: string}
+            provided: {type: string}
+            onSite: {type: string}
+            foreign: {type: boolean}
+            channel: {type: string}
+        applicant:
+          type: object
+          properties:
+            name: {type: string}
+            status: {$ref: '#/components/schemas/ApplicantStatus'}
+            foreignLanguage: {type: boolean}
+        address: {$ref: '#/components/schemas/AddressDraft'}
+        incidentTypeIds:
+          type: array
+          items: {type: string}
+        attributes:
+          type: object
+          additionalProperties: true
+        description: {type: string, maxLength: 1999}
+        actionsTaken: {type: string}
+        flags:
+          type: object
+          required: [victimsPresent, ambulanceRefusal, blocked, noContact, callDropped]
+          properties:
+            victimsPresent: {type: boolean}
+            victimsCount: {type: integer, minimum: 0}
+            ambulanceRefusal: {type: boolean}
+            blocked: {type: boolean}
+            noContact: {type: boolean}
+            callDropped: {type: boolean}
+        services:
+          type: array
+          items: {$ref: '#/components/schemas/AssignedService'}
+
+    ReactionStatus:
+      type: string
+      enum:
+        - Добавлена
+        - Получена службой
+        - Принята
+        - Не принята
+        - Начало реагирования
+        - Прибытие
+        - Проведение работ
+        - Работы завершены
+        - Отказ от выполнения работ
+
+    ReactionStatusEntry:
+      type: object
+      required: [status, at, operator]
+      properties:
+        status: {$ref: '#/components/schemas/ReactionStatus'}
+        at: {type: string, format: date-time}
+        operator: {type: string, description: '«оп. 227» / «система»'}
+        squadNumber: {type: string}
+        comment: {type: string}
+
+    AllowedTransition:
+      type: object
+      required: [status, label, commentRequired, squadNumberRequired]
+      properties:
+        status: {$ref: '#/components/schemas/ReactionStatus'}
+        label: {type: string}
+        commentRequired: {type: boolean}
+        squadNumberRequired: {type: boolean}
+
+    AssignedService:
+      type: object
+      required: [serviceId, code, name, shortName, isPrimary, source, currentStatus, currentStatusAt, history, allowedNext, editable]
+      properties:
+        serviceId: {type: string}
+        code: {type: string}
+        name: {type: string}
+        shortName: {type: string}
+        isPrimary: {type: boolean}
+        source: {type: string, enum: [auto, manual, vis]}
+        reason: {type: string}
+        currentStatus: {$ref: '#/components/schemas/ReactionStatus'}
+        currentStatusAt: {type: string, format: date-time}
+        history:
+          type: array
+          items: {$ref: '#/components/schemas/ReactionStatusEntry'}
+        allowedNext:
+          type: array
+          items: {$ref: '#/components/schemas/AllowedTransition'}
+        editable: {type: boolean}
+
+    ChangeStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status: {$ref: '#/components/schemas/ReactionStatus'}
+        squadNumber: {type: string}
+        comment: {type: string}
+
+    # ------------------------------------------- легенда и эталон (teacher)
+    Address:
+      type: object
+      description: контрактный Address (_components.yaml), camelCase
+      properties:
+        raw: {type: string}
+        city: {type: string}
+        street: {type: string}
+        house: {type: string}
+        entrance: {type: string}
+        floor: {type: string}
+        apartment: {type: string}
+        landmark: {type: string}
+
+    CallTurn:
+      type: object
+      required: [speaker, text]
+      properties:
+        speaker: {type: string, enum: [caller, operator_hint]}
+        text: {type: string}
+        ttsHash: {type: string}
+
+    DialogueFact:
+      type: object
+      required: [id, text, reveal]
+      properties:
+        id: {type: string}
+        text: {type: string}
+        reveal: {type: string, enum: [volunteer, on_request, never]}
+        hints:
+          type: array
+          items: {type: string}
+
+    DialogueBrief:
+      type: object
+      description: Бриф LLM-заявителя. Только teacher; студенту не отдаётся.
+      required: [persona, facts]
+      properties:
+        persona: {type: string}
+        speakingStyle: {type: string}
+        facts:
+          type: array
+          items: {$ref: '#/components/schemas/DialogueFact'}
+        unknowns:
+          type: array
+          items: {type: string}
+        endConditions:
+          type: array
+          items: {type: string}
+        maxTurns: {type: integer, minimum: 2, maximum: 40, default: 12}
+
+    CallScript:
+      type: object
+      required: [caller, address, keyFacts, turns]
+      properties:
+        caller:
+          type: object
+          properties:
+            name: {type: string}
+            phone: {type: string}
+            role: {type: string}
+            emotionalState: {type: string}
+            voice: {type: string, description: голос TTS для этого заявителя (переопределяет settings.tts)}
+        address: {$ref: '#/components/schemas/Address'}
+        keyFacts:
+          type: array
+          items: {type: string}
+        dialogue: {$ref: '#/components/schemas/DialogueBrief'}
+        turns:
+          type: array
+          items: {$ref: '#/components/schemas/CallTurn'}
+
+    IncidentCard:
+      type: object
+      description: контрактный IncidentCard (эталонная карточка), camelCase
+      properties:
+        categoryCode: {type: string}
+        address: {$ref: '#/components/schemas/Address'}
+        applicant:
+          type: object
+          properties:
+            name: {type: string}
+            phone: {type: string}
+        casualties:
+          type: object
+          properties:
+            injured: {type: integer}
+            dead: {type: integer}
+            trapped: {type: integer}
+        servicesToNotify:
+          type: array
+          items: {type: string}
+        description: {type: string}
+        actionsTaken: {type: string}
+        attributes:
+          type: object
+          additionalProperties: true
+
+    Scoring:
+      type: object
+      properties:
+        requiredFields:
+          type: array
+          items: {type: string}
+        fieldWeights:
+          type: object
+          additionalProperties: {type: number}
+        requiredFacts:
+          type: array
+          items: {type: string}
+        forbiddenFacts:
+          type: array
+          items: {type: string}
+
+    ExpectedAction:
+      type: object
+      required: [actionText]
+      properties:
+        actionText: {type: string}
+        requiredFacts:
+          type: array
+          items: {type: string}
+        forbiddenFacts:
+          type: array
+          items: {type: string}
+
+    DialogueChecklistItem:
+      type: object
+      required: [id, text, kind, required]
+      properties:
+        id: {type: string}
+        text: {type: string}
+        kind: {type: string, enum: [question, instruction, phrase, behavior]}
+        required: {type: boolean}
+        weight: {type: number, minimum: 0, default: 1}
+        hints:
+          type: array
+          items: {type: string}
+
+    ExpectedDialogue:
+      type: object
+      required: [checklist]
+      properties:
+        checklist:
+          type: array
+          items: {$ref: '#/components/schemas/DialogueChecklistItem'}
+        forbidden:
+          type: array
+          items: {type: string}
+        maxOperatorTurns: {type: integer}
+
+    Scenario:
+      type: object
+      required: [id, title, categoryId, categoryName, difficulty, mode, source, status, callScript, etalonCard, etalonDraft, requiredFields, createdAt, etalonVersion]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        categoryId: {type: string}
+        categoryName: {type: string}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        mode: {type: string, enum: [cards, card_actions, both]}
+        source: {$ref: '#/components/schemas/ScenarioSource'}
+        status: {$ref: '#/components/schemas/ScenarioStatus'}
+        callScript: {$ref: '#/components/schemas/CallScript'}
+        etalonCard: {$ref: '#/components/schemas/IncidentCard'}
+        etalonDraft: {$ref: '#/components/schemas/IncidentCardDraft'}
+        scoring: {$ref: '#/components/schemas/Scoring'}
+        expectedActions:
+          type: array
+          items: {$ref: '#/components/schemas/ExpectedAction'}
+        expectedDialogue: {$ref: '#/components/schemas/ExpectedDialogue'}
+        requiredFields:
+          type: array
+          items: {type: string}
+        teacherComment: {type: string}
+        notesForTeacher: {type: string}
+        generationMeta:
+          type: object
+          additionalProperties: true
+          description: engine генерации (модель, prompt_version) — для QA модели
+        authorId: {type: string, format: uuid}
+        validatedBy: {type: string, format: uuid}
+        validatedAt: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+        etalonVersion: {type: integer}
+        ttsReady: {type: boolean, description: все реплики озвучены (кэш готов)}
+
+    CreateScenarioInput:
+      type: object
+      required: [title, categoryId, difficulty, mode]
+      properties:
+        title: {type: string, minLength: 3}
+        categoryId: {type: string}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        mode: {type: string, enum: [cards, card_actions, both]}
+
+    GenerateScenarioInput:
+      type: object
+      required: [categoryId, difficulty, mode]
+      properties:
+        categoryId: {type: string}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        mode: {type: string, enum: [cards, card_actions, both]}
+        teacherComment: {type: string}
+        withDialogue: {type: boolean, default: true, description: сгенерировать бриф заявителя и чек-лист разговора}
+
+    ScenarioPatch:
+      type: object
+      description: Частичное обновление; любое из полей эталона -> новая версия etalons
+      properties:
+        title: {type: string}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        mode: {type: string, enum: [cards, card_actions, both]}
+        callScript: {$ref: '#/components/schemas/CallScript'}
+        etalonCard: {$ref: '#/components/schemas/IncidentCard'}
+        etalonDraft: {$ref: '#/components/schemas/IncidentCardDraft'}
+        scoring: {$ref: '#/components/schemas/Scoring'}
+        expectedActions:
+          type: array
+          items: {$ref: '#/components/schemas/ExpectedAction'}
+        expectedDialogue: {$ref: '#/components/schemas/ExpectedDialogue'}
+        requiredFields:
+          type: array
+          items: {type: string}
+        teacherComment: {type: string}
+
+    AiJob:
+      type: object
+      required: [id, type, status, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        type: {type: string, enum: [evaluate_grammar, evaluate_semantic, evaluate_dialogue, generate_scenario, tts]}
+        status: {type: string, enum: [queued, running, done, failed, cancelled]}
+        refType: {type: string}
+        refId: {type: string, format: uuid}
+        tryCount: {type: integer}
+        error: {type: string}
+        queuePosition: {type: integer}
+        estWaitSec: {type: integer}
+        createdAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+
+    # ------------------------------------------------------------ lessons
+    VoiceSettings:
+      type: object
+      description: Голосовой режим занятия (lessons.settings.voice)
+      required: [enabled, input]
+      properties:
+        enabled: {type: boolean, description: интерактивный разговор с LLM-заявителем}
+        input:
+          type: string
+          enum: [voice, text, both]
+          default: voice
+          description: 'voice — микрофон; text — ввод реплик текстом (нет гарнитуры/QA); both — на выбор студента'
+        pushToTalk: {type: boolean, default: true, description: 'true — удерживать кнопку; false — старт/стоп'}
+        maxTurns: {type: integer, minimum: 2, maximum: 40, default: 12}
+        ttsEnabled: {type: boolean, default: true}
+
+    LessonSettings:
+      type: object
+      required: [passThreshold, weights, cardsPerStudent, allowReplay, voice]
+      properties:
+        passThreshold: {type: number, minimum: 0, maximum: 100}
+        weights:
+          type: object
+          description: 'сумма = 1; при voice.enabled=false dialogue обнуляется и остальные перенормируются'
+          required: [fields, semantic, grammar, timing, dialogue]
+          properties:
+            fields: {type: number}
+            semantic: {type: number}
+            grammar: {type: number}
+            timing: {type: number}
+            dialogue: {type: number}
+        cardsPerStudent: {type: integer, minimum: 1}
+        allowReplay: {type: boolean}
+        voice: {$ref: '#/components/schemas/VoiceSettings'}
+
+    LessonParticipant:
+      type: object
+      required: [userId, name, status]
+      properties:
+        userId: {type: string, format: uuid}
+        name: {type: string}
+        status: {$ref: '#/components/schemas/ParticipantStatus'}
+        attemptId: {type: string, format: uuid}
+        joinedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+        micReady: {type: boolean, description: прошёл проверку микрофона (событие mic_check)}
+
+    Lesson:
+      type: object
+      required: [id, kind, title, teacherId, mode, perspective, timeLimitSec, status, scenarioIds, participants, settings, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/LessonKind'}
+        title: {type: string}
+        teacherId: {type: string, format: uuid}
+        mode: {$ref: '#/components/schemas/LessonMode'}
+        perspective: {$ref: '#/components/schemas/ArmPerspective'}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        timeLimitSec: {type: integer}
+        status: {$ref: '#/components/schemas/LessonStatus'}
+        scenarioIds:
+          type: array
+          items: {type: string, format: uuid}
+        participants:
+          type: array
+          items: {$ref: '#/components/schemas/LessonParticipant'}
+        settings: {$ref: '#/components/schemas/LessonSettings'}
+        createdAt: {type: string, format: date-time}
+        startedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+
+    CreateLessonInput:
+      type: object
+      required: [title, mode, perspective, timeLimitSec, scenarioIds, participantIds, passThreshold, allowReplay]
+      properties:
+        title: {type: string, minLength: 3}
+        mode: {$ref: '#/components/schemas/LessonMode'}
+        perspective: {$ref: '#/components/schemas/ArmPerspective'}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        timeLimitSec: {type: integer, minimum: 10}
+        scenarioIds:
+          type: array
+          minItems: 1
+          items: {type: string, format: uuid}
+        participantIds:
+          type: array
+          minItems: 1
+          items: {type: string, format: uuid}
+        passThreshold: {type: number}
+        allowReplay: {type: boolean}
+        weights:
+          type: object
+          additionalProperties: {type: number}
+          description: переопределение весов; иначе — из default-settings
+        voice: {$ref: '#/components/schemas/VoiceSettings'}
+
+    # ----------------------------------------------------------- attempts
+    Attempt:
+      type: object
+      required: [id, lessonId, lessonTitle, userId, scenarioId, mode, perspective, seqNo, status, timeLimitSec, issuedAt, replayCount, incidentNo, serverNow, voice]
+      properties:
+        id: {type: string, format: uuid}
+        lessonId: {type: string, format: uuid}
+        lessonTitle: {type: string}
+        userId: {type: string, format: uuid}
+        scenarioId: {type: string, format: uuid}
+        mode: {$ref: '#/components/schemas/LessonMode'}
+        perspective: {$ref: '#/components/schemas/ArmPerspective'}
+        seqNo: {type: integer}
+        status: {$ref: '#/components/schemas/AttemptStatus'}
+        timeLimitSec: {type: integer}
+        issuedAt: {type: string, format: date-time}
+        callAcceptedAt: {type: string, format: date-time}
+        firstInputAt: {type: string, format: date-time}
+        submittedAt: {type: string, format: date-time}
+        timeSpentMs: {type: integer}
+        replayCount: {type: integer}
+        card: {$ref: '#/components/schemas/IncidentCardDraft'}
+        incidentNo: {type: string}
+        serverNow: {type: string, format: date-time}
+        voice: {$ref: '#/components/schemas/VoiceSettings'}
+        dialogue:
+          type: object
+          description: краткое состояние разговора (полный транскрипт — GET /dialogue)
+          properties:
+            turnsCount: {type: integer}
+            callEnded: {type: boolean}
+            callEndedAt: {type: string, format: date-time}
+
+    StudentCallScript:
+      type: object
+      description: Без keyFacts, dialogue-брифа и эталона.
+      required: [caller, turns, allowReplay, voice]
+      properties:
+        caller:
+          type: object
+          properties:
+            name: {type: string}
+            phone: {type: string}
+            role: {type: string}
+        turns:
+          type: array
+          description: >
+            В голосовом режиме — только вступительная реплика (index 0); дальнейшие
+            реплики появляются в DialogueState. В текстовом режиме — все сценарные.
+          items: {$ref: '#/components/schemas/CallTurnView'}
+        allowReplay: {type: boolean}
+        voice: {$ref: '#/components/schemas/VoiceSettings'}
+
+    CallTurnView:
+      type: object
+      required: [index, speaker, text]
+      properties:
+        index: {type: integer}
+        speaker: {type: string, enum: [caller, operator_hint]}
+        text: {type: string}
+        audioUrl: {type: string, description: '/api/v1/media/tts/… (GAP-10/15 закрыт)'}
+        durationMs: {type: integer}
+
+    AttemptEventType:
+      type: string
+      enum:
+        - issued
+        - call_accepted
+        - open_card
+        - field_changed
+        - choose_value
+        - service_assigned
+        - service_removed
+        - service_status_changed
+        - replay
+        - save
+        - submitted
+        - timer_expired
+        - disconnected
+        - reconnected
+        - mic_check
+        - ptt_start
+        - ptt_stop
+        - dialogue_operator
+        - dialogue_caller
+        - dialogue_ended
+
+    AttemptEventInput:
+      type: object
+      required: [clientSeq, type, at]
+      properties:
+        clientSeq: {type: integer, minimum: 1}
+        type: {$ref: '#/components/schemas/AttemptEventType'}
+        payload:
+          type: object
+          additionalProperties: true
+        at: {type: string, format: date-time}
+
+    AttemptEvent:
+      allOf:
+        - $ref: '#/components/schemas/AttemptEventInput'
+        - type: object
+          required: [id]
+          properties:
+            id: {type: integer}
+
+    # ----------------------------------------------------------- dialogue
+    AudioRef:
+      type: object
+      required: [audioUrl, durationMs]
+      properties:
+        audioUrl: {type: string, description: относительный URL для <audio>; авторизация по cookie}
+        durationMs: {type: integer}
+        mime: {type: string, default: audio/wav}
+
+    DialogueTurnView:
+      type: object
+      required: [turnNo, speaker, text, atMs, source]
+      properties:
+        turnNo: {type: integer}
+        speaker: {type: string, enum: [operator, caller]}
+        text: {type: string}
+        atMs: {type: integer, description: от callAcceptedAt}
+        at: {type: string, format: date-time}
+        durationMs: {type: integer}
+        confidence: {type: number, minimum: 0, maximum: 1, description: только operator/stt}
+        source: {type: string, enum: [stt, text, script, llm]}
+        audio: {$ref: '#/components/schemas/AudioRef'}
+        emotionalState: {type: string, description: только caller — для индикатора в UI}
+
+    DialogueState:
+      type: object
+      required: [attemptId, turns, callEnded, input]
+      properties:
+        attemptId: {type: string, format: uuid}
+        turns:
+          type: array
+          items: {$ref: '#/components/schemas/DialogueTurnView'}
+        callEnded: {type: boolean}
+        callEndedAt: {type: string, format: date-time}
+        endReason: {type: string, enum: [operator_hung_up, caller_hung_up, max_turns, submitted, timeout]}
+        input: {type: string, enum: [voice, text, both]}
+        nextTurnNo: {type: integer, description: какой turnNo слать следующим (идемпотентность)}
+        turnsLeft: {type: integer}
+
+    DialogueTurnResponse:
+      type: object
+      required: [turnNo, caller, callEnded, noSpeech, fallback, nextTurnNo]
+      properties:
+        turnNo: {type: integer}
+        operator:
+          $ref: '#/components/schemas/DialogueTurnView'
+        caller:
+          $ref: '#/components/schemas/DialogueTurnView'
+        noSpeech: {type: boolean, description: речь не распознана — реплика оператора не сохранена}
+        callEnded: {type: boolean}
+        endReason: {type: string}
+        fallback: {type: boolean, description: LLM недоступна — ответ из сценарных реплик}
+        nextTurnNo: {type: integer}
+        latencyMs: {type: integer, description: полный round-trip на сервере (для панели преподавателя и QA)}
+
+    # --------------------------------------------------------- evaluation
+    FieldError:
+      type: object
+      required: [field, label, kind, weight]
+      properties:
+        field: {type: string}
+        label: {type: string}
+        expected: {}
+        actual: {}
+        kind: {type: string, enum: [missing, wrong, extra]}
+        weight: {type: number}
+
+    GrammarRemark:
+      type: object
+      required: [field, offset, length, severity, message]
+      properties:
+        field: {type: string}
+        offset: {type: integer}
+        length: {type: integer}
+        severity: {type: string, enum: [error, warning, style]}
+        rule: {type: string}
+        message: {type: string}
+        suggestions:
+          type: array
+          items: {type: string}
+
+    GrammarResult:
+      type: object
+      required: [score, stats, remarks]
+      properties:
+        score: {$ref: '#/components/schemas/Score'}
+        stats:
+          type: object
+          required: [wordsChecked]
+          properties:
+            wordsChecked: {type: integer}
+            errorsBySeverity:
+              type: object
+              additionalProperties: {type: integer}
+        remarks:
+          type: array
+          items: {$ref: '#/components/schemas/GrammarRemark'}
+
+    SemanticResult:
+      type: object
+      required: [score, confidence]
+      properties:
+        score: {$ref: '#/components/schemas/Score'}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        missingFacts:
+          type: array
+          items: {type: string}
+        extraFacts:
+          type: array
+          items: {type: string}
+        perField:
+          type: array
+          items:
+            type: object
+            required: [field, score]
+            properties:
+              field: {type: string}
+              score: {$ref: '#/components/schemas/Score'}
+              comment: {type: string}
+        summaryForStudent: {type: string}
+
+    DialogueChecklistResult:
+      type: object
+      required: [id, text, status]
+      properties:
+        id: {type: string}
+        text: {type: string, description: go-core подставляет из эталона — фронт не ищет по id}
+        kind: {type: string, enum: [question, instruction, phrase, behavior]}
+        required: {type: boolean}
+        status: {type: string, enum: [done, partial, missed, not_applicable]}
+        evidenceTurnNo: {type: integer}
+        comment: {type: string}
+
+    DialogueResult:
+      type: object
+      required: [score, confidence, checklist, speech]
+      properties:
+        score: {$ref: '#/components/schemas/Score'}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        checklist:
+          type: array
+          items: {$ref: '#/components/schemas/DialogueChecklistResult'}
+        missingQuestions:
+          type: array
+          items: {type: string}
+        forbiddenHits:
+          type: array
+          items:
+            type: object
+            required: [phrase, turnNo]
+            properties:
+              phrase: {type: string}
+              turnNo: {type: integer}
+        speech:
+          type: object
+          required: [operatorTurns, operatorWords]
+          properties:
+            operatorTurns: {type: integer}
+            operatorWords: {type: integer}
+            operatorTalkMs: {type: integer}
+            wordsPerMin: {type: number}
+            fillerCount: {type: integer}
+            fillers:
+              type: object
+              additionalProperties: {type: integer}
+            avgResponseMs: {type: integer}
+            maxResponseMs: {type: integer}
+            lowConfidenceTurns: {type: integer}
+        tone:
+          type: object
+          properties:
+            politeness: {$ref: '#/components/schemas/Score'}
+            calmness: {$ref: '#/components/schemas/Score'}
+            clarity: {$ref: '#/components/schemas/Score'}
+            comment: {type: string}
+        summaryForStudent: {type: string}
+
+    Recommendation:
+      type: object
+      required: [id, kind, body]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [weak_category, weak_field, slow_timing, grammar_pattern, dialogue_pattern, general]}
+        body: {type: string}
+        items:
+          type: array
+          items: {type: string}
+
+    Evaluation:
+      type: object
+      required: [attemptId, status, totalScore, verdict, fieldErrors, timing, needsReview, aiUnavailable, recommendations, finalScore, weights]
+      properties:
+        attemptId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/EvaluationStatus'}
+        fieldsScore: {$ref: '#/components/schemas/Score'}
+        timingScore: {$ref: '#/components/schemas/Score'}
+        grammarScore: {$ref: '#/components/schemas/Score'}
+        semanticScore: {$ref: '#/components/schemas/Score'}
+        dialogueScore: {$ref: '#/components/schemas/Score'}
+        totalScore: {type: number}
+        verdict: {$ref: '#/components/schemas/Verdict'}
+        weights:
+          type: object
+          description: веса занятия, по которым посчитан итог — UI показывает их, а не хардкодит
+          additionalProperties: {type: number}
+        fieldErrors:
+          type: array
+          items: {$ref: '#/components/schemas/FieldError'}
+        grammar: {$ref: '#/components/schemas/GrammarResult'}
+        semantic: {$ref: '#/components/schemas/SemanticResult'}
+        dialogue: {$ref: '#/components/schemas/DialogueResult'}
+        timing:
+          type: object
+          required: [spentMs, limitSec, deltaMs, withinNorm, reactionMs]
+          properties:
+            spentMs: {type: integer}
+            limitSec: {type: integer}
+            deltaMs: {type: integer}
+            withinNorm: {type: boolean}
+            reactionMs: {type: integer}
+        layers:
+          type: object
+          description: 'состояние AI-слоёв для «часиков» в UI: {"grammar":"done","semantic":"queued","dialogue":"running"}'
+          additionalProperties: {type: string, enum: [queued, running, done, failed, skipped]}
+        needsReview: {type: boolean}
+        aiUnavailable: {type: boolean}
+        engine:
+          type: object
+          additionalProperties: true
+          description: модели/версии промптов, которыми считали (для QA и отчёта)
+        recommendations:
+          type: array
+          items: {$ref: '#/components/schemas/Recommendation'}
+        override:
+          type: object
+          required: [score, verdict, reason, by, at]
+          properties:
+            score: {type: number}
+            verdict: {$ref: '#/components/schemas/Verdict'}
+            reason: {type: string}
+            by: {type: string}
+            at: {type: string, format: date-time}
+        finalScore: {type: number}
+        xpEarned: {type: integer}
+
+    TeacherFeedback:
+      type: object
+      required: [id, attemptId, teacherName, comment, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        attemptId: {type: string, format: uuid}
+        teacherName: {type: string}
+        field: {type: string}
+        comment: {type: string}
+        recommendation: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    # -------------------------------------------------------------- admin
+    SystemHealth:
+      type: object
+      required: [status, goCore, postgres, aiService]
+      properties:
+        status: {type: string, enum: [ok, degraded, down]}
+        goCore:
+          type: object
+          properties:
+            version: {type: string}
+            uptimeSec: {type: integer}
+            activeSessions: {type: integer}
+            wsConnections: {type: integer}
+        postgres:
+          type: object
+          properties:
+            ok: {type: boolean}
+            latencyMs: {type: integer}
+            lastBackupAt: {type: string, format: date-time}
+        aiService:
+          type: object
+          description: проксированные /v1/health + /v1/queue ai-service (camelCase)
+          properties:
+            ok: {type: boolean}
+            breakerState: {type: string, enum: [closed, open, half_open]}
+            ollama: {type: boolean}
+            languagetool: {type: boolean}
+            tts: {type: boolean}
+            stt: {type: boolean}
+            modelsAvailable:
+              type: array
+              items: {type: string}
+            profiles:
+              type: object
+              additionalProperties: {type: string}
+            queue:
+              type: object
+              properties:
+                pending:
+                  type: object
+                  additionalProperties: {type: integer}
+                running: {type: integer}
+                dialogWaiting: {type: integer}
+                dialogAvgMs: {type: integer}
+                estWaitSec: {type: integer}
+        jobs:
+          type: object
+          description: 'ai_jobs по статусам: {"queued": 3, "running": 1, "failed": 0}'
+          additionalProperties: {type: integer}
+
+    Setting:
+      type: object
+      required: [key, value]
+      properties:
+        key: {type: string}
+        value: {}
+        description: {type: string}
+        updatedAt: {type: string, format: date-time}
+
+    # ----------------------------------------------------------------- ws
+    MonitorMessage:
+      type: object
+      description: Сообщение сервер -> преподаватель в /ws/lessons/{id}/monitor
+      required: [seq, type, at]
+      properties:
+        seq: {type: integer}
+        type:
+          type: string
+          enum: [snapshot, participantStatus, attemptEvent, dialogueTurn, evaluationUpdated, lessonStatus, aiHealth]
+        at: {type: string, format: date-time}
+        snapshot:
+          type: object
+          description: type=snapshot
+          properties:
+            lesson: {$ref: '#/components/schemas/Lesson'}
+            attempts:
+              type: array
+              items: {$ref: '#/components/schemas/Attempt'}
+        participant:
+          $ref: '#/components/schemas/LessonParticipant'
+        attemptId: {type: string, format: uuid}
+        event: {$ref: '#/components/schemas/AttemptEvent'}
+        turn: {$ref: '#/components/schemas/DialogueTurnView'}
+        evaluation: {$ref: '#/components/schemas/Evaluation'}
+        lessonStatus: {$ref: '#/components/schemas/LessonStatus'}
+        aiHealth:
+          type: object
+          properties:
+            ok: {type: boolean}
+            dialogWaiting: {type: integer}
+            dialogAvgMs: {type: integer}
+
+    StudentMessage:
+      type: object
+      description: Сообщение сервер -> студент в /ws/attempts/{id}
+      required: [seq, type, at]
+      properties:
+        seq: {type: integer}
+        type: {type: string, enum: [evaluationUpdated, lessonFinished, timerExpired, callerHungUp]}
+        at: {type: string, format: date-time}
+        evaluation: {$ref: '#/components/schemas/Evaluation'}
+        turn: {$ref: '#/components/schemas/DialogueTurnView'}

@@ -1,7 +1,8 @@
-# Линт контрактов: npx @redocly/cli lint contracts/openapi/_components.yaml contracts/openapi/ai-service.v1.yaml contracts/openapi/go-internal.v1.yaml
+# Линт контрактов: make contracts-lint (все четыре спеки в contracts/openapi/)
 extends:
   - recommended
 rules:
   info-license: off        # внутренний API, лицензия не нужна
   security-defined: off    # /v1/health намеренно без токена (docker healthcheck)
   no-empty-servers: off    # _components.yaml — библиотека схем, серверов не имеет
+  operation-2xx-response: off  # WebSocket-эндпоинты (x-websocket) отвечают 101

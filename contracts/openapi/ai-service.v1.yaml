@@ -19,11 +19,26 @@
 #     Breaker открывают только connection refused / timeout / 5xx.
 #   * внутри: одна полоса LLM (семафор=1), отдельная полоса LanguageTool —
 #     грамматика не стоит в очереди за семантикой.
+#
+# v1.1 — голосовой режим (student говорит в гарнитуру, LLM играет заявителя):
+#   * СИНХРОННЫЕ эндпоинты (студент ждёт ответа на линии, fire-and-forget не годится):
+#       POST /v1/stt/transcribe   аудио -> текст                     (~1 с)
+#       POST /v1/dialog/turn      аудио|текст -> STT -> LLM -> TTS   (~4-6 с на CPU)
+#       POST /v1/tts/sync         текст -> файл                      (~0.5 с)
+#     Таймаут клиента go-core: 20 с. Полоса LLM — очередь с приоритетом:
+#     dialog_turn > evaluate_* > generate. Пока ждут диалоги, фоновые LLM-задачи
+#     не стартуют (стартовавшая — дорабатывает, num_predict ограничен).
+#   * 503 + Retry-After — полоса перегружена (ждущих диалогов > DIALOG_MAX_WAITING):
+#     go-core отдаёт фронту "заявитель не отвечает, повторите" — это НЕ ошибка попытки.
+#   * Новая асинхронная задача POST /v1/jobs/dialogue (evaluate_dialogue) — оценка
+#     разговора по транскрипту после submit; результат — callback как у остальных.
+#   * ПДн по-прежнему не уезжают: аудио оператора не содержит идентификаторов,
+#     в ai-service файлы аудио оператора НЕ сохраняются (только транскрипт в ответе).
 # ============================================================================
 openapi: 3.0.3
 info:
   title: LCT AI Service — internal API
-  version: "1.0"
+  version: "1.1"
 servers:
   - url: http://ai-service:8000
 security:
@@ -128,6 +143,202 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '429': {$ref: '#/components/responses/QueueFull'}
 
+  /v1/jobs/dialogue:
+    post:
+      operationId: submitDialogueJob
+      summary: Оценка разговора оператора с заявителем по транскрипту (LLM + метрики речи)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DialogueJobRequest'
+            examples:
+              fire_dialogue:
+                value:
+                  schema_version: "1"
+                  request_id: "018f6b2a-7c1e-7f00-a000-000000000011"
+                  attempt_id: "018f6b2a-7c1e-7f00-b000-000000000002"
+                  priority: 3
+                  profile: eval_dialogue
+                  scenario_context:
+                    category: {code: "2.3.1", name: "Пожар в жилом доме"}
+                  call_script:
+                    caller: {name: "Мария", role: "соседка", emotional_state: "паника"}
+                    address: {raw: "Ленина 14, подъезд 3, 5 этаж"}
+                    key_facts: ["дым из квартиры на 5 этаже", "подъезд 3"]
+                    dialogue:
+                      persona: "женщина ~60 лет, соседка, напугана"
+                      facts:
+                        - {id: smoke, text: "дым из квартиры на 5 этаже", reveal: volunteer}
+                        - {id: entrance, text: "подъезд 3", reveal: on_request, hints: ["подъезд"]}
+                        - {id: person_inside, text: "в квартире может быть пожилой сосед", reveal: on_request, hints: ["люди", "кто-то внутри", "в квартире"]}
+                    turns:
+                      - {speaker: caller, text: "Алло! У нас дым из квартиры идёт, Ленина 14!"}
+                  etalon:
+                    expected_dialogue:
+                      checklist:
+                        - {id: ask_address, text: "Уточнил адрес: дом, подъезд, этаж", kind: question, required: true, hints: ["подъезд", "этаж", "какой дом"]}
+                        - {id: ask_people, text: "Спросил, есть ли люди в квартире", kind: question, required: true, hints: ["люди", "кто-нибудь внутри"]}
+                        - {id: ask_phone, text: "Уточнил контактный телефон", kind: question, required: false}
+                        - {id: say_dispatched, text: "Сообщил, что помощь направлена", kind: phrase, required: true, hints: ["направлена", "выехали", "едут"]}
+                        - {id: calm, text: "Говорил спокойно, не перебивал", kind: behavior, required: true}
+                      forbidden: ["перезвоните позже", "ждите"]
+                  transcript:
+                    - {turn_no: 1, speaker: caller, text: "Алло! У нас дым из квартиры идёт, Ленина 14!", at_ms: 0, source: script}
+                    - {turn_no: 2, speaker: operator, text: "Служба 112, слушаю. Какой подъезд и этаж?", at_ms: 4100, confidence: 0.91, audio_duration_ms: 2900, source: stt}
+                    - {turn_no: 3, speaker: caller, text: "Третий подъезд, пятый этаж, ой, дым такой!", at_ms: 9800, source: llm, revealed_fact_ids: [entrance]}
+                    - {turn_no: 4, speaker: operator, text: "Понял, помощь направлена, оставайтесь на связи.", at_ms: 15200, confidence: 0.88, audio_duration_ms: 3100, source: stt}
+                  timing: {call_accepted_at_ms: 0, submitted_at_ms: 41000}
+                  options: {lang: ru}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/QueueFull'}
+
+  # ------------------------------------------------------- синхронные (голос)
+
+  /v1/stt/transcribe:
+    post:
+      operationId: transcribeAudio
+      summary: Распознавание речи оператора (синхронно, ~1 с на 5 с аудио)
+      description: >
+        Принимает одну реплику (push-to-talk, до STT_MAX_AUDIO_SEC=60 с).
+        Форматы: audio/webm (opus), audio/ogg (opus), audio/wav; декодирование
+        через ffmpeg/PyAV на стороне ai-service. Аудио не сохраняется.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                options:
+                  $ref: '#/components/schemas/SttOptions'
+            encoding:
+              options: {contentType: application/json}
+      responses:
+        '200':
+          description: Распознано (в т.ч. no_speech=true для тишины)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SttResponse'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMedia'}
+        '503': {$ref: '#/components/responses/ServiceBusy'}
+
+  /v1/dialog/turn:
+    post:
+      operationId: dialogTurn
+      summary: Ход диалога — реплика оператора (аудио или текст) -> ответ заявителя (текст + озвучка)
+      description: >
+        Один round-trip для минимальной задержки: STT (если audio) -> LLM-заявитель
+        -> TTS в shared volume. Состояние диалога НЕ хранится в ai-service:
+        go-core присылает историю и уже раскрытые факты каждый раз (stateless).
+        Если передан и audio, и operator_text — используется operator_text
+        (текстовый fallback / QA-режим), STT не вызывается.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [request]
+              properties:
+                request:
+                  $ref: '#/components/schemas/DialogTurnRequest'
+                audio:
+                  type: string
+                  format: binary
+                  description: реплика оператора; необязательна, если request.operator_text задан
+            encoding:
+              request: {contentType: application/json}
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DialogTurnRequest'
+      responses:
+        '200':
+          description: Ход обработан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DialogTurnResult'
+              examples:
+                ok:
+                  value:
+                    schema_version: "1"
+                    request_id: "018f6b2a-7c1e-7f00-c000-000000000021"
+                    attempt_id: "018f6b2a-7c1e-7f00-b000-000000000002"
+                    turn_no: 2
+                    operator:
+                      text: "Служба 112, слушаю. Какой подъезд и этаж?"
+                      text_raw: "служба сто двенадцать слушаю какой подъезд и этаж"
+                      confidence: 0.91
+                      audio_duration_ms: 2900
+                      no_speech: false
+                    caller:
+                      text: "Третий подъезд, пятый этаж! Дым прямо из-под двери!"
+                      emotional_state: "паника"
+                      revealed_fact_ids: [entrance, smoke]
+                      is_unknown_answer: false
+                      should_end: false
+                      tts: {text_hash: "a3f1…", file_path: "dialog/018f6b2a…/3.wav", duration_ms: 3400, voice: baya, rate: 1.0}
+                    engine:
+                      stt_model: "faster-whisper:small-int8"
+                      llm_model: "qwen2.5:3b-instruct-q4_K_M"
+                      prompt_version: "caller-v2"
+                      tts_version: "silero-v4-ru"
+                      duration_ms: 4800
+                      queue_wait_ms: 300
+                no_speech:
+                  summary: тишина — заявитель переспрашивает, транскрипт не пополняется
+                  value:
+                    schema_version: "1"
+                    request_id: "018f6b2a-7c1e-7f00-c000-000000000022"
+                    attempt_id: "018f6b2a-7c1e-7f00-b000-000000000002"
+                    turn_no: 2
+                    operator: {text: "", confidence: 0, audio_duration_ms: 1200, no_speech: true}
+                    caller:
+                      text: "Алло? Вы меня слышите?"
+                      revealed_fact_ids: []
+                      should_end: false
+                      tts: {text_hash: "9c…", file_path: "common/allo_slyshite.wav", duration_ms: 1500}
+                    engine: {stt_model: "faster-whisper:small-int8", duration_ms: 900}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMedia'}
+        '503': {$ref: '#/components/responses/ServiceBusy'}
+
+  /v1/tts/sync:
+    post:
+      operationId: ttsSync
+      summary: Синхронная озвучка (предпрослушивание в редакторе сценария, служебные фразы)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TtsSyncRequest'
+      responses:
+        '200':
+          description: Файл записан в shared volume
+          content:
+            application/json:
+              schema:
+                $ref: '_components.yaml#/components/schemas/TtsResult'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceBusy'}
+
   /v1/queue:
     get:
       operationId: getQueueStatus
@@ -180,6 +391,31 @@ components:
             $ref: '_components.yaml#/components/schemas/ApiError'
     QueueFull:
       description: Очередь полна. Не ошибка задачи — go-core ждёт Retry-After и шлёт снова.
+      headers:
+        Retry-After:
+          schema: {type: integer}
+          description: секунды
+      content:
+        application/json:
+          schema:
+            $ref: '_components.yaml#/components/schemas/ApiError'
+    PayloadTooLarge:
+      description: Аудио длиннее STT_MAX_AUDIO_SEC или больше STT_MAX_BYTES
+      content:
+        application/json:
+          schema:
+            $ref: '_components.yaml#/components/schemas/ApiError'
+    UnsupportedMedia:
+      description: Формат аудио не поддерживается (ждём webm/opus, ogg/opus, wav)
+      content:
+        application/json:
+          schema:
+            $ref: '_components.yaml#/components/schemas/ApiError'
+    ServiceBusy:
+      description: >
+        Полоса перегружена или движок недоступен (Ollama/STT/TTS). Для диалога
+        go-core транслирует фронту "заявитель не отвечает" и просит повторить;
+        breaker НЕ открывается (это не 5xx-ошибка сервиса, а честный backpressure).
       headers:
         Retry-After:
           schema: {type: integer}
@@ -352,6 +588,160 @@ components:
             voice: {type: string, default: baya}
             rate: {type: number, default: 1.0}
 
+    DialogueJobRequest:
+      allOf:
+        - $ref: '#/components/schemas/JobBase'
+        - type: object
+          required: [attempt_id, call_script, etalon, transcript]
+          properties:
+            attempt_id: {type: string, format: uuid}
+            profile:
+              $ref: '_components.yaml#/components/schemas/Profile'
+            scenario_context:
+              type: object
+              properties:
+                category:
+                  type: object
+                  properties:
+                    code: {type: string}
+                    name: {type: string}
+                    path:
+                      type: array
+                      items: {type: string}
+                difficulty: {type: integer, minimum: 1, maximum: 3}
+            call_script:
+              $ref: '_components.yaml#/components/schemas/CallScript'
+            etalon:
+              type: object
+              required: [expected_dialogue]
+              properties:
+                expected_dialogue:
+                  $ref: '_components.yaml#/components/schemas/ExpectedDialogue'
+            transcript:
+              type: array
+              minItems: 1
+              items:
+                $ref: '_components.yaml#/components/schemas/DialogueTurn'
+            timing:
+              type: object
+              description: для метрик темпа; всё в мс от call_accepted_at
+              properties:
+                call_accepted_at_ms: {type: integer, minimum: 0, default: 0}
+                submitted_at_ms: {type: integer, minimum: 0}
+                call_ended_at_ms: {type: integer, minimum: 0}
+            options:
+              type: object
+              properties:
+                lang: {type: string, default: ru}
+                stt_confidence_floor:
+                  type: number
+                  default: 0.6
+                  description: реплики с confidence ниже — не считать «ошибками оператора»
+
+    SttOptions:
+      type: object
+      properties:
+        lang: {type: string, default: ru}
+        profile:
+          $ref: '_components.yaml#/components/schemas/Profile'
+        hints:
+          type: array
+          items: {type: string}
+          description: >
+            Доменные подсказки (initial_prompt / hotwords): названия улиц сценария,
+            имя заявителя, термины ("подъезд", "ДТП"). go-core берёт из call_script.
+        itn:
+          type: boolean
+          default: true
+          description: inverse text normalization — числа/номера цифрами ("дом четырнадцать" -> "дом 14")
+
+    SttResponse:
+      allOf:
+        - $ref: '_components.yaml#/components/schemas/SttResult'
+        - type: object
+          required: [engine]
+          properties:
+            engine:
+              $ref: '_components.yaml#/components/schemas/Engine'
+
+    DialogTurnRequest:
+      type: object
+      required: [schema_version, request_id, attempt_id, turn_no, call_script, history]
+      properties:
+        schema_version:
+          $ref: '_components.yaml#/components/schemas/SchemaVersion'
+        request_id:
+          type: string
+          format: uuid
+          description: id хода (go-core генерирует UUIDv7); корреляция логов, не идемпотентность
+        attempt_id: {type: string, format: uuid}
+        turn_no:
+          type: integer
+          minimum: 1
+          description: номер реплики оператора в диалоге (1 — первая после вступительной)
+        profile:
+          $ref: '_components.yaml#/components/schemas/Profile'
+        call_script:
+          $ref: '_components.yaml#/components/schemas/CallScript'
+        history:
+          type: array
+          description: >
+            Весь диалог до текущего хода, включая вступительную реплику. ai-service
+            stateless: окно контекста (последние N реплик) режет сам по профилю.
+          items:
+            $ref: '_components.yaml#/components/schemas/DialogueTurn'
+        revealed_fact_ids:
+          type: array
+          items: {type: string}
+          description: факты, уже раскрытые заявителем (агрегат go-core по history)
+        operator_text:
+          type: string
+          description: текстовый ввод оператора (fallback без микрофона / QA) — тогда audio игнорируется
+        options:
+          type: object
+          properties:
+            lang: {type: string, default: ru}
+            stt:
+              $ref: '#/components/schemas/SttOptions'
+            tts:
+              type: object
+              properties:
+                voice: {type: string}
+                rate: {type: number, default: 1.0}
+                enabled: {type: boolean, default: true, description: false — только текст (текстовый режим занятия)}
+            max_reply_words: {type: integer, default: 40}
+
+    DialogTurnResult:
+      type: object
+      required: [schema_version, request_id, attempt_id, turn_no, operator, caller, engine]
+      properties:
+        schema_version:
+          $ref: '_components.yaml#/components/schemas/SchemaVersion'
+        request_id: {type: string, format: uuid}
+        attempt_id: {type: string, format: uuid}
+        turn_no: {type: integer}
+        operator:
+          $ref: '_components.yaml#/components/schemas/SttResult'
+        caller:
+          $ref: '_components.yaml#/components/schemas/CallerReply'
+        fallback:
+          type: boolean
+          description: >
+            true — LLM недоступна/таймаут, ответ взят из сценарных turns (по кругу)
+            или из служебных фраз. go-core пишет это в реплику (source=script),
+            оценка диалога учитывает.
+        engine:
+          $ref: '_components.yaml#/components/schemas/Engine'
+
+    TtsSyncRequest:
+      type: object
+      required: [text, text_hash]
+      properties:
+        text: {type: string}
+        text_hash: {type: string, description: sha256(text|voice|rate) — как в TtsJobRequest}
+        voice: {type: string}
+        rate: {type: number, default: 1.0}
+
     JobAccepted:
       type: object
       required: [request_id, status]
@@ -379,6 +769,13 @@ components:
         est_wait_sec:
           type: integer
           description: оценка ожидания для НОВОЙ semantic-задачи (скользящее среднее длительности)
+        dialog_waiting:
+          type: integer
+          description: ходов диалога, ждущих полосу LLM прямо сейчас (голосовой режим)
+        dialog_avg_ms:
+          type: integer
+          description: скользящее среднее полного хода STT+LLM+TTS — метрика для панели преподавателя
+        stt_running: {type: integer}
 
     Health:
       type: object
@@ -388,6 +785,11 @@ components:
         ollama: {type: boolean}
         languagetool: {type: boolean}
         tts: {type: boolean}
+        stt: {type: boolean}
         models_available:
           type: array
           items: {type: string}
+        profiles:
+          type: object
+          additionalProperties: {type: string}
+          description: 'текущий маппинг профиль -> модель: {"dialog_fast": "qwen2.5:3b-instruct-q4_K_M", "stt_default": "faster-whisper:small-int8"}'
