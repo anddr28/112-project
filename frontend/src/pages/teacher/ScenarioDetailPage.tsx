@@ -4,6 +4,7 @@ import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, ScenarioStatusBadge } from '../../components/ui';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
+import { ScenarioEditor } from '../../features/scenario/ScenarioEditor';
 import { formatDateTime } from '../../shared/utils/time';
 import { labelForPath } from '../../shared/utils/labels';
 
@@ -14,6 +15,7 @@ export function ScenarioDetailPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   if (scenario.loading) return <Loading />;
   if (scenario.error) return <ErrorState text={scenario.error} onRetry={scenario.reload} />;
@@ -65,7 +67,17 @@ export function ScenarioDetailPage() {
         </div>
 
         <div className="page-head__actions">
-          {s.status === 'generated' && (
+          {editable && !editing && (
+            <button type="button" className="btn" onClick={() => setEditing(true)}>
+              Редактировать сценарий
+            </button>
+          )}
+          {/*
+            * Подтверждать нужно и созданный вручную черновик: без этого
+            * сценарий не попадёт в занятие — туда берутся только
+            * подтверждённые.
+            */}
+          {editable && !editing && (
             <button
               type="button"
               className="btn btn--primary"
@@ -94,6 +106,16 @@ export function ScenarioDetailPage() {
         </div>
       )}
 
+      {editing ? (
+        <ScenarioEditor
+          scenario={s}
+          onSaved={() => {
+            setEditing(false);
+            scenario.reload();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
       <div className="grid grid--sidebar">
         <div className="stack">
           <Card title="Легенда звонка">
@@ -195,6 +217,7 @@ export function ScenarioDetailPage() {
           </Card>
         </div>
       </div>
+      )}
     </>
   );
 }

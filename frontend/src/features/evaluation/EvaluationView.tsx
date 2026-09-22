@@ -1,4 +1,6 @@
 import { Badge, Card, Meter, Metric } from '../../components/ui';
+import { DialogueLayer } from './DialogueLayer';
+import { cls } from '../../shared/utils/cls';
 import { scoreTone } from '../../shared/utils/score';
 import { formatDelta, formatDuration } from '../../shared/utils/time';
 import type { Evaluation, LessonSettings } from '../../shared/types';
@@ -23,22 +25,46 @@ export function EvaluationView({
   evaluation: Evaluation;
   threshold: number;
   /**
-   * Веса слоёв из настроек занятия. Подписи «· 50%» обязаны совпадать
-   * с коэффициентами, по которым посчитан итоговый балл, поэтому берутся
-   * из той же конфигурации, а не из константы в разметке.
+   * Запасной источник весов — настройки занятия. Используется, только если
+   * сама оценка их не принесла: занятие могло переопределить веса уже после
+   * проверки, и тогда подписи разошлись бы с формулой.
    */
   weights?: LessonSettings['weights'];
 }) {
   const ev = evaluation;
   const pending = ev.status === 'partial' || ev.status === 'pending';
 
+  // Веса той оценки, которую показываем, важнее текущих настроек занятия.
+  const used = ev.weights ?? weights;
+  const dialogueLayer = ev.layers?.dialogue;
+
+  /*
+   * Слой разговора показываем по фактическим данным оценки, а не по настройкам
+   * занятия: у попытки без разговора пятая плитка появляться не должна.
+   */
+  const hasDialogue =
+    ev.dialogue != null ||
+    ev.dialogueScore != null ||
+    (dialogueLayer != null && dialogueLayer !== 'skipped') ||
+    (used?.dialogue ?? 0) > 0;
+
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <div className="grid grid--4">
-        <ScoreTile label="Поля карточки" weight={weights?.fields} score={ev.fieldsScore} threshold={threshold} pending={pending} />
-        <ScoreTile label="Семантика" weight={weights?.semantic} score={ev.semanticScore} threshold={threshold} pending={pending} />
-        <ScoreTile label="Грамматика" weight={weights?.grammar} score={ev.grammarScore} threshold={threshold} pending={pending} />
-        <ScoreTile label="Время" weight={weights?.timing} score={ev.timingScore} threshold={threshold} pending={pending} />
+      <div className={cls('grid', hasDialogue ? 'grid--5' : 'grid--4')}>
+        <ScoreTile label="Поля карточки" weight={used?.fields} score={ev.fieldsScore} threshold={threshold} pending={pending} />
+        <ScoreTile label="Семантика" weight={used?.semantic} score={ev.semanticScore} threshold={threshold} pending={pending} />
+        <ScoreTile label="Грамматика" weight={used?.grammar} score={ev.grammarScore} threshold={threshold} pending={pending} />
+        <ScoreTile label="Время" weight={used?.timing} score={ev.timingScore} threshold={threshold} pending={pending} />
+        {hasDialogue && (
+          <ScoreTile
+            label="Разговор"
+            weight={used?.dialogue}
+            score={ev.dialogueScore}
+            threshold={threshold}
+            pending={dialogueLayer === 'queued' || dialogueLayer === 'running'}
+            failed={dialogueLayer === 'failed'}
+          />
+        )}
       </div>
 
       {pending && (
@@ -61,9 +87,7 @@ export function EvaluationView({
           <div className="card__body">
             <b>Требуется ревью преподавателя</b>
             <div className="muted small">
-              Уверенность модели в семантической оценке ниже порога
-              {ev.semantic ? ` (${Math.round(ev.semantic.confidence * 100)}%)` : ''}.
-              Итоговый балл может быть скорректирован после проверки.
+              {lowConfidenceText(ev)} Итоговый балл может быть скорректирован после проверки.
             </div>
           </div>
         </div>
@@ -210,6 +234,8 @@ export function EvaluationView({
         </Card>
       </div>
 
+      {ev.dialogue && <DialogueLayer dialogue={ev.dialogue} />}
+
       {ev.recommendations.length > 0 && (
         <Card title="Рекомендации">
           <div className="stack stack--tight">
@@ -230,12 +256,27 @@ export function EvaluationView({
   );
 }
 
+/** Текст причины ревью: называем слой, чья уверенность ниже порога. */
+function lowConfidenceText(ev: Evaluation): string {
+  const low: string[] = [];
+  if (ev.semantic && ev.semantic.confidence < 0.7) {
+    low.push(`смысловой полноте (${Math.round(ev.semantic.confidence * 100)}%)`);
+  }
+  if (ev.dialogue && ev.dialogue.confidence < 0.7) {
+    low.push(`оценке разговора (${Math.round(ev.dialogue.confidence * 100)}%)`);
+  }
+  return low.length > 0
+    ? `Уверенность модели ниже порога в ${low.join(' и ')}.`
+    : 'Оценка помечена как требующая проверки преподавателем.';
+}
+
 function ScoreTile({
   label,
   weight,
   score,
   threshold,
   pending,
+  failed,
 }: {
   label: string;
   /** доля слоя в итоговом балле, 0..1; undefined — настройки ещё не получены */
@@ -244,6 +285,8 @@ function ScoreTile({
   threshold: number;
   /** проверка ещё идёт: отличает «считается» от «оценивать было нечего» */
   pending: boolean;
+  /** слой не удалось посчитать — отличается от «оценивать было нечего» */
+  failed?: boolean;
 }) {
   const caption = weight == null ? label : `${label} · ${Math.round(weight * 100)}%`;
 
@@ -251,13 +294,18 @@ function ScoreTile({
     return (
       <div className="metric">
         <span className="metric__label">{caption}</span>
-        <span className="metric__value" style={{ fontSize: 'var(--u-fs-md)', color: 'var(--u-text-3)' }}>
-          {pending ? 'Анализируется…' : 'Не оценивалось'}
+        <span
+          className="metric__value"
+          style={{ fontSize: 'var(--u-fs-md)', color: failed ? 'var(--u-danger)' : 'var(--u-text-3)' }}
+        >
+          {failed ? 'Не удалось посчитать' : pending ? 'Анализируется…' : 'Не оценивалось'}
         </span>
         {pending ? (
           <div className="meter"><div className="meter__fill" style={{ width: '30%', opacity: 0.4 }} /></div>
         ) : (
-          <span className="metric__note">в итоговом балле не учтено</span>
+          <span className="metric__note">
+            {failed ? 'требуется проверка преподавателем' : 'в итоговом балле не учтено'}
+          </span>
         )}
       </div>
     );

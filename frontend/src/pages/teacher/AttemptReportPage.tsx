@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../shared/api';
-import { useAuth } from '../../app/auth';
-import { shortName } from '../../shared/utils/user';
 import { useAsync } from '../../shared/api/useAsync';
 import { Card, ErrorState, Field, Loading, Metric, Modal, NumberInput } from '../../components/ui';
 import { EvaluationView } from '../../features/evaluation/EvaluationView';
@@ -27,6 +25,12 @@ const EVENT_LABEL: Record<string, string> = {
   timer_expired: 'Истёк норматив',
   disconnected: 'Потеряна связь',
   reconnected: 'Связь восстановлена',
+  mic_check: 'Проверка микрофона',
+  ptt_start: 'Начал говорить',
+  ptt_stop: 'Закончил говорить',
+  dialogue_operator: 'Реплика оператора',
+  dialogue_caller: 'Ответ заявителя',
+  dialogue_ended: 'Разговор завершён',
 };
 
 export function AttemptReportPage() {
@@ -172,7 +176,7 @@ export function AttemptReportPage() {
               <thead><tr><th style={{ width: 90 }}>Время</th><th>Событие</th><th>Детали</th></tr></thead>
               <tbody>
                 {(events.data ?? []).map((e) => (
-                  <tr key={e.clientSeq}>
+                  <tr key={e.id}>
                     <td className="mono small nowrap">{formatDateTime(e.at).slice(11)}</td>
                     <td>{EVENT_LABEL[e.type] ?? 'Действие обучающегося'}</td>
                     <td className="muted small">{renderPayload(e.payload, labels.data ?? undefined)}</td>
@@ -230,6 +234,11 @@ const PAYLOAD_LABEL: Record<string, string> = {
   hasComment: 'комментарий',
   scenarioId: 'сценарий',
   lineIndex: 'реплика',
+  turnNo: 'ход разговора',
+  reason: 'причина',
+  durationMs: 'длительность',
+  ok: 'результат',
+  mime: 'формат записи',
 };
 
 const PAYLOAD_VALUE: Record<string, string> = {
@@ -238,6 +247,11 @@ const PAYLOAD_VALUE: Record<string, string> = {
   manual: 'вручную',
   auto: 'автоматически',
   vis: 'внешняя система',
+  operator_hung_up: 'оператор положил трубку',
+  caller_hung_up: 'заявитель положил трубку',
+  max_turns: 'исчерпаны реплики',
+  submitted: 'карточка сохранена',
+  timeout: 'истекло время',
 };
 
 function renderPayload(payload?: Record<string, unknown>, labels?: ClassifierLabels): string {
@@ -254,6 +268,10 @@ function renderPayload(payload?: Record<string, unknown>, labels?: ClassifierLab
       if (k === 'value') return `${key}: ${labelForValue(path, v, labels)}`;
       if (k === 'scenarioId') return `${key}: учебный сценарий`;
 
+      if (k === 'durationMs' && typeof v === 'number') {
+        return `${key}: ${(v / 1000).toFixed(1).replace('.', ',')} с`;
+      }
+
       const raw = Array.isArray(v) ? v.join(', ') : String(v);
       return `${key}: ${PAYLOAD_VALUE[raw] ?? raw}`;
     })
@@ -265,7 +283,6 @@ function FeedbackModal({ attemptId, onClose, onDone }: { attemptId: string; onCl
   const [recommendation, setRecommendation] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const author = useAuthorName();
 
   return (
     <Modal
@@ -282,7 +299,7 @@ function FeedbackModal({ attemptId, onClose, onDone }: { attemptId: string; onCl
               setBusy(true);
               setError(null);
               void api.feedback
-                .add(attemptId, comment, recommendation, author)
+                .add(attemptId, { comment, recommendation: recommendation || undefined })
                 .then(onDone)
                 .catch((e: unknown) => {
                   setBusy(false);
@@ -331,7 +348,6 @@ function OverrideModal({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const author = useAuthorName();
 
   return (
     <Modal
@@ -348,7 +364,7 @@ function OverrideModal({
               setBusy(true);
               setError(null);
               void api.evaluation
-                .override(attemptId, score, reason, author)
+                .override(attemptId, { score, reason })
                 .then(onDone)
                 .catch((e: unknown) => {
                   setBusy(false);
@@ -392,7 +408,3 @@ function OverrideModal({
 }
 
 /** Автор действия — текущий авторизованный преподаватель, а не фиксированное имя. */
-function useAuthorName(): string {
-  const user = useAuth((s) => s.user);
-  return user ? shortName(user) : '';
-}

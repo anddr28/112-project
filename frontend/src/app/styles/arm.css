@@ -46,6 +46,8 @@
 
 .arm-top__disconnect { display: flex; flex-direction: column; gap: 6px; }
 
+.arm-top__hangup-icon svg { display: block; }
+
 .arm-top__hangup {
   display: flex;
   align-items: center;
@@ -626,6 +628,8 @@
 .arm-save:hover:not(:disabled) { background: #f0f0f0; }
 .arm-save:disabled { opacity: 0.55; cursor: not-allowed; }
 
+.arm-iconbtn svg { display: block; }
+
 .arm-iconbtn {
   width: 32px;
   height: 32px;
@@ -797,6 +801,9 @@
   padding: 28px 24px 22px;
 }
 
+/* Значок вызова — контурный, наследует цвет; размер задаёт контейнер. */
+.call-card__pulse svg { display: block; }
+
 .call-card__pulse {
   width: 58px;
   height: 58px;
@@ -879,6 +886,90 @@
 
 .call-turn--hint .call-turn__text { color: var(--arm-blue-dark); font-style: italic; }
 .call-turn.is-current { background: #fff6ea; padding: 4px 7px; border-left: 2px solid var(--arm-orange); }
+
+/* ─── разговор с заявителем: реплики оператора, статус, ввод реплики ─── */
+
+.call-panel__hint {
+  font-size: var(--arm-fs);
+  color: var(--arm-label);
+}
+
+/* Реплика оператора отличается от реплики заявителя линией слева,
+   а не «пузырём»: это рабочий журнал разговора, а не мессенджер. */
+.call-turn--operator {
+  border-left: 2px solid var(--arm-border);
+  padding-left: 7px;
+}
+.call-turn--operator .call-turn__text { color: var(--arm-text-2); }
+
+.call-panel__status {
+  padding: 4px 10px;
+  border-top: 1px solid var(--arm-border-2);
+  background: var(--arm-panel-2);
+  font-size: var(--arm-fs-label);
+  color: var(--arm-text-2);
+}
+
+.call-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--arm-border-2);
+}
+
+.call-compose__field { display: flex; flex-direction: column; gap: 2px; }
+
+.call-compose__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.call-compose__hint {
+  font-size: var(--arm-fs-label);
+  color: var(--arm-label);
+  line-height: 1.35;
+}
+
+/* Удержание кнопки ответа: состояние видно и мышью, и с клавиатуры. */
+.call-ptt.is-active {
+  background: var(--arm-orange);
+  border-color: var(--arm-orange-dark);
+  color: #fff;
+}
+
+/* Идёт запись: уровень сигнала и длительность, без анимаций. */
+.call-rec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--arm-fs-label);
+  color: var(--arm-text-2);
+}
+.call-rec__meter {
+  flex: 1;
+  max-width: 220px;
+  height: 6px;
+  background: var(--arm-panel-2);
+  border: 1px solid var(--arm-border-2);
+}
+.call-rec__level { height: 100%; background: var(--arm-orange); }
+.call-rec__time { font-family: var(--arm-mono, monospace); min-width: 36px; }
+
+/* Записанная реплика, ожидающая расшифровки или отправки. */
+.call-clip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--arm-border-2);
+  background: var(--arm-panel-2);
+  font-size: var(--arm-fs-label);
+}
+.call-clip audio, .call-turn__audio { height: 26px; max-width: 240px; }
+.call-turn__audio { display: block; margin-top: 2px; }
 
 .call-panel__foot {
   display: flex;

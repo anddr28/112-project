@@ -87,10 +87,17 @@ export function ResultPage() {
           {awaiting ? (
             <Loading text="Проверяем карточку…" />
           ) : (
-            <EmptyState
-              title="Попытка ещё не завершена"
-              text="Результат появится после того, как карточка будет сохранена."
-            />
+            attempt.data.status === 'expired' || attempt.data.status === 'aborted' ? (
+              <EmptyState
+                title="Попытка не выполнена"
+                text="Попытка закрыта до сохранения карточки, поэтому оценки нет."
+              />
+            ) : (
+              <EmptyState
+                title="Попытка ещё не завершена"
+                text="Результат появится после того, как карточка будет сохранена."
+              />
+            )
           )}
         </Card>
       ) : (

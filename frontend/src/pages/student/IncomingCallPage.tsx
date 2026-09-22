@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../shared/api';
+import { Icon } from '../../components/Icon';
 import type { Attempt, StudentCallScript } from '../../shared/types';
 
 /**
@@ -76,7 +77,7 @@ export function IncomingCallPage() {
   return (
     <div className="call-screen">
       <div className="call-card">
-        <div className="call-card__pulse">📞</div>
+        <div className="call-card__pulse"><Icon name="phone" size={22} /></div>
         <div className="call-card__title">Входящий вызов 112</div>
         <div className="call-card__phone mono">{script.caller.phone ?? 'номер не определён'}</div>
         <div className="call-card__meta">

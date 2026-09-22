@@ -79,7 +79,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     setSubmitting(true);
     // Сначала отложенные события, затем черновик: хронология не должна
     // потерять последнее действие перед сохранением карточки.
-    flush();
+    await flush();
     await saveNow();
     try {
       await api.attempts.submit(attemptId, card);
@@ -137,6 +137,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
       onChange={setCard}
       onFieldChange={logFieldChange}
       onServicesChanged={reloadDraft}
+      onEvent={log}
       onReplay={() => {
         void api.attempts.replay(attemptId).catch(() => {});
         log('replay');

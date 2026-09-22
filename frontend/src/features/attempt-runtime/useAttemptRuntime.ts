@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../shared/api';
-import type { Attempt, AttemptEventType, IncidentCardDraft } from '../../shared/types';
+import type { Attempt, AttemptEventInput, AttemptEventType, IncidentCardDraft } from '../../shared/types';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -144,34 +144,80 @@ export function useAutosave(attemptId: string, card: IncidentCardDraft, enabled:
  * попытки и при уходе с экрана — иначе последнее действие обучающегося
  * не попало бы в хронологию и в разбор у преподавателя.
  */
+/** Пауза, за которую события копятся в одну пачку (контракт: до 200 в пачке). */
+const EVENT_BATCH_MS = 500;
+const EVENT_BATCH_MAX = 200;
+
+/**
+ * Сквозной номер события попытки. Хранится между перезагрузками вкладки:
+ * по нему сервер отбрасывает повторы, и после F5 нумерация не должна
+ * начинаться заново — иначе новые события приняли бы за дубли.
+ */
+function nextClientSeq(attemptId: string): number {
+  const key = `arm112.eventSeq.${attemptId}`;
+  let current = 0;
+  try {
+    current = Number(sessionStorage.getItem(key)) || 0;
+  } catch {
+    // хранилище недоступно — нумерация живёт до перезагрузки
+  }
+  const next = current + 1;
+  try {
+    sessionStorage.setItem(key, String(next));
+  } catch {
+    // см. выше
+  }
+  return next;
+}
+
 export function useEventLog(attemptId: string) {
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** Последнее значение поля, ожидающее отправки, и время самого изменения. */
   const queued = useRef<Map<string, { value: unknown; at: string }>>(new Map());
+  /** События, пронумерованные и ещё не подтверждённые сервером. */
+  const outbox = useRef<AttemptEventInput[]>([]);
+  const batchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Отправляет накопленное пачкой. При сбое события возвращаются в очередь:
+   * повтор безопасен — сервер отбрасывает уже принятые clientSeq.
+   */
+  const sendBatch = useCallback(async (): Promise<void> => {
+    if (batchTimer.current) clearTimeout(batchTimer.current);
+    batchTimer.current = null;
+    while (outbox.current.length > 0) {
+      const batch = outbox.current.splice(0, EVENT_BATCH_MAX);
+      try {
+        await api.attempts.postEvents(attemptId, batch);
+      } catch {
+        outbox.current = [...batch, ...outbox.current];
+        return;
+      }
+    }
+  }, [attemptId]);
+
+  const enqueue = useCallback(
+    (type: AttemptEventType, payload: Record<string, unknown> | undefined, at: string) => {
+      outbox.current.push({ clientSeq: nextClientSeq(attemptId), type, payload, at });
+      if (!batchTimer.current) {
+        batchTimer.current = setTimeout(() => void sendBatch().catch(ignoreBackgroundError), EVENT_BATCH_MS);
+      }
+    },
+    [attemptId, sendBatch],
+  );
+
+  const log = useCallback(
+    (type: AttemptEventType, payload?: Record<string, unknown>) => {
+      enqueue(type, payload, new Date().toISOString());
+    },
+    [enqueue],
+  );
 
   /*
    * `at` — момент самого изменения, а не момент отправки. Событие уходит после
    * дебаунса, но время первого ввода считается по нему: иначе время реакции
    * обучающегося было бы завышено на длину дебаунса.
    */
-  const send = useCallback(
-    (field: string, value: unknown, at: string) => {
-      void api.attempts
-        .addEvent(attemptId, { type: 'field_changed', payload: { field, value }, at })
-        .catch(ignoreBackgroundError);
-    },
-    [attemptId],
-  );
-
-  const log = useCallback(
-    (type: AttemptEventType, payload?: Record<string, unknown>) => {
-      void api.attempts
-        .addEvent(attemptId, { type, payload, at: new Date().toISOString() })
-        .catch(ignoreBackgroundError);
-    },
-    [attemptId],
-  );
-
   const logFieldChange = useCallback(
     (field: string, value: unknown) => {
       const existing = timers.current.get(field);
@@ -184,21 +230,22 @@ export function useEventLog(attemptId: string) {
         setTimeout(() => {
           timers.current.delete(field);
           queued.current.delete(field);
-          send(field, value, at);
+          enqueue('field_changed', { field, value }, at);
         }, 1000),
       );
     },
-    [send],
+    [enqueue],
   );
 
   /** Немедленно отправляет всё отложенное. Вызывается перед submit. */
-  const flush = useCallback(() => {
+  const flush = useCallback((): Promise<void> => {
     timers.current.forEach((t) => clearTimeout(t));
     timers.current.clear();
     const pending = [...queued.current.entries()];
     queued.current.clear();
-    for (const [field, item] of pending) send(field, item.value, item.at);
-  }, [send]);
+    for (const [field, item] of pending) enqueue('field_changed', { field, value: item.value }, item.at);
+    return sendBatch();
+  }, [enqueue, sendBatch]);
 
   useEffect(() => {
     const pendingTimers = timers.current;
@@ -206,18 +253,21 @@ export function useEventLog(attemptId: string) {
     return () => {
       pendingTimers.forEach((t) => clearTimeout(t));
       pendingTimers.clear();
-      // Отправляем вдогонку то, что не успело уйти по debounce.
+      // Отправляем вдогонку то, что не успело уйти по debounce и в пачку.
       const rest = [...pendingValues.entries()];
       pendingValues.clear();
       for (const [field, item] of rest) {
-        void api.attempts
-          .addEvent(attemptId, {
-            type: 'field_changed',
-            payload: { field, value: item.value },
-            at: item.at,
-          })
-          .catch(ignoreBackgroundError);
+        outbox.current.push({
+          clientSeq: nextClientSeq(attemptId),
+          type: 'field_changed',
+          payload: { field, value: item.value },
+          at: item.at,
+        });
       }
+      if (batchTimer.current) clearTimeout(batchTimer.current);
+      batchTimer.current = null;
+      const batch = outbox.current.splice(0);
+      if (batch.length > 0) void api.attempts.postEvents(attemptId, batch).catch(ignoreBackgroundError);
     };
   }, [attemptId]);
 

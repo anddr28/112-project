@@ -5,12 +5,19 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Card, ErrorState, Field, LessonStatusBadge, Loading, Modal, NumberInput } from '../../components/ui';
 import { formatDate } from '../../shared/utils/time';
 import { shortName } from '../../shared/utils/user';
-import type { ArmPerspective, Difficulty } from '../../shared/types';
+import type { ArmPerspective, Difficulty, LessonSettings, VoiceInput, VoiceSettings } from '../../shared/types';
 
-/** Доля слоя в итоговом балле как проценты: 0.5 → «50%». */
-function pct(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
+/** Доли слоёв в процентах — так их складывает и правит преподаватель. */
+type WeightPct = Record<keyof LessonSettings['weights'], number>;
+
+/** Слои оценки в порядке, в котором они показываются преподавателю. */
+const WEIGHT_LAYERS: Array<{ key: keyof LessonSettings['weights']; label: string }> = [
+  { key: 'fields', label: 'Поля карточки' },
+  { key: 'semantic', label: 'Семантика' },
+  { key: 'grammar', label: 'Грамматика' },
+  { key: 'timing', label: 'Время' },
+  { key: 'dialogue', label: 'Разговор' },
+];
 
 export function LessonListPage() {
   const lessons = useAsync(() => api.lessons.list(), []);
@@ -45,7 +52,7 @@ export function LessonListPage() {
             <thead>
               <tr>
                 <th>Название</th><th>Режим</th><th>Рабочее место</th>
-                <th>Сценарии</th><th>Участники</th><th>Норматив</th><th>Статус</th><th>Создано</th>
+                <th>Сценарии</th><th>Участники</th><th>Норматив</th><th>Разговор</th><th>Статус</th><th>Создано</th>
               </tr>
             </thead>
             <tbody>
@@ -57,6 +64,7 @@ export function LessonListPage() {
                   <td className="mono">{l.scenarioIds.length}</td>
                   <td className="mono">{l.participants.length}</td>
                   <td className="mono nowrap">{l.timeLimitSec} с</td>
+                  <td className="muted small">{l.settings.voice.enabled ? 'голосовой' : '—'}</td>
                   <td><LessonStatusBadge status={l.status} /></td>
                   <td className="muted small nowrap">{formatDate(l.createdAt)}</td>
                 </tr>
@@ -84,6 +92,9 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
   /** null — ещё не получен из параметров по умолчанию */
   const [passThreshold, setPassThreshold] = useState<number | null>(null);
   const [allowReplay, setAllowReplay] = useState(true);
+  const [voice, setVoice] = useState<VoiceSettings | null>(null);
+  /** проценты слоёв; null — ещё не получены параметры по умолчанию */
+  const [weightPct, setWeightPct] = useState<WeightPct | null>(null);
   const [scenarioIds, setScenarioIds] = useState<string[]>([]);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -91,9 +102,54 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
 
   const validated = (scenarios.data ?? []).filter((s) => s.status === 'validated');
   const learners = (students.data ?? []).filter((u) => u.role === 'student' && u.status === 'active');
-  const weights = defaults.data?.weights;
   // Значение поля — введённое пользователем либо значение по умолчанию.
   const threshold = passThreshold ?? defaults.data?.passThreshold;
+
+  /*
+   * Голосовой режим и веса берут значения по умолчанию из сервисного слоя,
+   * пока преподаватель их не тронул. Проценты хранятся целыми: так их проще
+   * складывать до ста и невозможно получить 0.30000000000000004.
+   */
+  const voiceSettings: VoiceSettings | null = voice ?? defaults.data?.voice ?? null;
+  const defaultWeights = defaults.data?.weights;
+  const defaultPct: WeightPct | null = defaultWeights
+    ? {
+        fields: Math.round(defaultWeights.fields * 100),
+        semantic: Math.round(defaultWeights.semantic * 100),
+        grammar: Math.round(defaultWeights.grammar * 100),
+        timing: Math.round(defaultWeights.timing * 100),
+        dialogue: Math.round(defaultWeights.dialogue * 100),
+      }
+    : null;
+  const pctValues = weightPct ?? defaultPct;
+  const voiceOn = voiceSettings?.enabled ?? false;
+
+  /** Вес разговора учитывается только при включённом голосе. */
+  const effectivePct: WeightPct | null = pctValues
+    ? { ...pctValues, dialogue: voiceOn ? pctValues.dialogue : 0 }
+    : null;
+  const pctSum = effectivePct
+    ? WEIGHT_LAYERS.reduce((acc, l) => acc + (effectivePct[l.key] ?? 0), 0)
+    : 0;
+
+  function setLayerPct(key: keyof WeightPct, value: number) {
+    if (!pctValues) return;
+    setWeightPct({ ...pctValues, [key]: value });
+  }
+
+  function patchVoice(patch: Partial<VoiceSettings>) {
+    if (!voiceSettings) return;
+    const next = { ...voiceSettings, ...patch };
+    setVoice(next);
+    // Включили голос впервые — даём разговору заметную долю, чтобы
+    // преподавателю не пришлось собирать сто процентов вручную.
+    if (patch.enabled === true && pctValues && (pctValues.dialogue ?? 0) === 0) {
+      setWeightPct({ fields: 35, semantic: 20, grammar: 10, timing: 10, dialogue: 25 });
+    }
+    if (patch.enabled === false && pctValues && pctValues.dialogue > 0 && defaultPct) {
+      setWeightPct({ ...defaultPct, dialogue: 0 });
+    }
+  }
 
   async function submit() {
     if (scenarioIds.length === 0) {
@@ -104,8 +160,12 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
       setError('Выберите хотя бы одного участника');
       return;
     }
-    if (threshold == null) {
+    if (threshold == null || !effectivePct || !voiceSettings) {
       setError('Параметры по умолчанию ещё не загружены');
+      return;
+    }
+    if (pctSum !== 100) {
+      setError(`Сумма весов слоёв должна быть равна 100%, сейчас ${pctSum}%`);
       return;
     }
     setBusy(true);
@@ -121,6 +181,14 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
         participantIds,
         passThreshold: threshold ?? 0,
         allowReplay,
+        voice: voiceSettings,
+        weights: {
+          fields: effectivePct.fields / 100,
+          semantic: effectivePct.semantic / 100,
+          grammar: effectivePct.grammar / 100,
+          timing: effectivePct.timing / 100,
+          dialogue: effectivePct.dialogue / 100,
+        },
       });
       onClose();
       navigate(`/teacher/lessons/${lesson.id}`);
@@ -190,16 +258,81 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
             </select>
           </Field>
 
-          <Field
-            label="Веса слоёв оценки"
-            hint="Поля / семантика / грамматика / время. Применяются к занятию и видны в результате."
-          >
-            <div className="input" style={{ display: 'flex', alignItems: 'center' }}>
-              {weights
-                ? `${pct(weights.fields)} / ${pct(weights.semantic)} / ${pct(weights.grammar)} / ${pct(weights.timing)}`
-                : '—'}
-            </div>
+          <Field label="Голосовой режим" hint="Разговор с ИИ-заявителем вместо сценарных реплик">
+            <select
+              className="select"
+              value={voiceOn ? 'on' : 'off'}
+              disabled={!voiceSettings}
+              onChange={(e) => patchVoice({ enabled: e.target.value === 'on' })}
+            >
+              <option value="off">Выключен</option>
+              <option value="on">Включён</option>
+            </select>
           </Field>
+        </div>
+
+        {voiceOn && voiceSettings && (
+          <div className="grid grid--3">
+            <Field label="Ввод реплик обучающегося">
+              <select
+                className="select"
+                value={voiceSettings.input}
+                onChange={(e) => patchVoice({ input: e.target.value as VoiceInput })}
+              >
+                <option value="voice">Голосом</option>
+                <option value="text">Текстом</option>
+                <option value="both">На выбор обучающегося</option>
+              </select>
+            </Field>
+
+            <Field label="Кнопка ответа" hint="Как обучающийся отвечает заявителю">
+              <select
+                className="select"
+                value={voiceSettings.pushToTalk ? 'ptt' : 'toggle'}
+                onChange={(e) => patchVoice({ pushToTalk: e.target.value === 'ptt' })}
+              >
+                <option value="ptt">Удерживать кнопку</option>
+                <option value="toggle">Нажатие — старт, нажатие — стоп</option>
+              </select>
+            </Field>
+
+            <Field label="Максимум реплик оператора" hint="Разговор закрывается по достижении">
+              <NumberInput
+                min={2}
+                max={40}
+                value={voiceSettings.maxTurns}
+                onChange={(maxTurns) => patchVoice({ maxTurns })}
+              />
+            </Field>
+          </div>
+        )}
+
+        <div>
+          <div className="field__label" style={{ marginBottom: 6 }}>
+            Веса слоёв оценки — сумма {pctSum}%{pctSum !== 100 ? ' (должно быть 100%)' : ''}
+          </div>
+          <div className="grid grid--5">
+            {WEIGHT_LAYERS.map((layer) => {
+              const disabled = layer.key === 'dialogue' && !voiceOn;
+              return (
+                <Field key={layer.key} label={layer.label}>
+                  <NumberInput
+                    min={0}
+                    max={100}
+                    value={effectivePct?.[layer.key]}
+                    disabled={disabled || !pctValues}
+                    aria-label={`Вес слоя «${layer.label}», проценты`}
+                    onChange={(v) => setLayerPct(layer.key, v)}
+                  />
+                </Field>
+              );
+            })}
+          </div>
+          <p className="field__hint" style={{ marginTop: 6 }}>
+            {voiceOn
+              ? 'Балл считается по этим долям и показывается обучающемуся в результате.'
+              : 'Без голосового режима разговор не оценивается: его доля равна нулю.'}
+          </p>
         </div>
 
         <div>

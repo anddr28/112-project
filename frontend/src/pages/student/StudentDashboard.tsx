@@ -9,7 +9,7 @@ import type { Attempt } from '../../shared/types';
 export function StudentDashboard() {
   const user = useAuth((s) => s.user);
   const navigate = useNavigate();
-  const assigned = useAsync(() => api.lessons.assigned(user?.id ?? ''), [user?.id]);
+  const assigned = useAsync(() => api.lessons.assigned(), [user?.id]);
 
   if (assigned.loading) return <Loading />;
   if (assigned.error) return <ErrorState text={assigned.error} onRetry={assigned.reload} />;
@@ -107,9 +107,11 @@ function describe(
   lessonStatus: string,
 ): { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' | 'danger'; action?: { label: string; to: string } } {
   if (!attempt) {
-    return lessonStatus === 'running'
-      ? { label: 'Карточка выдаётся…', tone: 'warn' }
-      : { label: 'Ожидает запуска преподавателем', tone: 'neutral' };
+    if (lessonStatus === 'running') return { label: 'Карточка выдаётся…', tone: 'warn' };
+    if (lessonStatus === 'finished' || lessonStatus === 'cancelled') {
+      return { label: 'Занятие закрыто', tone: 'neutral' };
+    }
+    return { label: 'Ожидает запуска преподавателем', tone: 'neutral' };
   }
 
   switch (attempt.status) {
@@ -139,7 +141,9 @@ function describe(
         action: { label: 'Результат', to: `/student/attempts/${attempt.id}/result` },
       };
     case 'expired':
-      return { label: 'Время истекло', tone: 'danger', action: { label: 'Результат', to: `/student/attempts/${attempt.id}/result` } };
+      // expired: попытку закрыли до сохранения карточки — по таймауту или
+      // при завершении занятия (контракт finishLesson).
+      return { label: 'Не выполнена', tone: 'danger', action: { label: 'Результат', to: `/student/attempts/${attempt.id}/result` } };
     default:
       return { label: 'Прервана', tone: 'danger' };
   }

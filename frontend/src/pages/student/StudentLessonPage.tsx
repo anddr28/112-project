@@ -10,7 +10,7 @@ export function StudentLessonPage() {
   const user = useAuth((s) => s.user);
   const navigate = useNavigate();
   const lesson = useAsync(() => api.lessons.get(lessonId), [lessonId]);
-  const assigned = useAsync(() => api.lessons.assigned(user?.id ?? ''), [user?.id]);
+  const assigned = useAsync(() => api.lessons.assigned(), [user?.id]);
 
   if (lesson.loading || assigned.loading) return <Loading />;
   if (lesson.error) return <ErrorState text={lesson.error} onRetry={lesson.reload} />;
@@ -43,6 +43,7 @@ export function StudentLessonPage() {
             <LessonStatusBadge status={l.status} />
             <Badge tone="neutral">{l.perspective === 'operator112' ? 'Оператор-112' : 'Диспетчер ДДС'}</Badge>
             <Badge tone="neutral">Норматив {l.timeLimitSec} с</Badge>
+            {l.settings.voice.enabled && <Badge tone="accent">Разговор с заявителем</Badge>}
           </div>
         </div>
       </div>
@@ -74,7 +75,9 @@ export function StudentLessonPage() {
             <p className="muted small">
               {l.status === 'running'
                 ? 'Карточка ещё не выдана. Обновите страницу через несколько секунд.'
-                : 'Занятие не запущено преподавателем.'}
+                : l.status === 'finished' || l.status === 'cancelled'
+                  ? 'Занятие закрыто преподавателем.'
+                  : 'Занятие не запущено преподавателем.'}
             </p>
           ) : (
             <div className="stack">
@@ -89,7 +92,9 @@ export function StudentLessonPage() {
                     ? 'Поступил вызов'
                     : attempt.status === 'in_progress'
                       ? 'В работе'
-                      : 'Завершена'}
+                      : attempt.status === 'expired' || attempt.status === 'aborted'
+                        ? 'Не выполнена'
+                        : 'Завершена'}
                 </div>
               </div>
 

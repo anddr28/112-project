@@ -1,32 +1,47 @@
-# React + TypeScript + Vite
+# Frontend — тренажёр оператора АРМ-112
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite. Роли: преподаватель, обучающийся, администратор.
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # tsc -b && vite build
+npm run lint     # oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Учебные учётные записи (логин = пароль): `teacher`, `student`, `student2`, `admin`.
+
+## Режимы сервисного слоя
+
+UI обращается только к интерфейсу `Api` (`src/shared/api/types.ts`). Реализация
+выбирается в `src/shared/api/index.ts` переменной окружения (см. `.env.example`):
+
+| `VITE_USE_MOCKS` | Реализация | Назначение |
+|---|---|---|
+| не задан / `true` | `src/shared/mocks/mockApi.ts` | демонстрация без backend; состояние — в `sessionStorage` вкладки |
+| `false` | `src/shared/api/httpApi.ts` | go-core по `contracts/openapi/frontend.v1.yaml`, cookie-сессия, `X-Requested-With: fetch` |
+
+В dev-режиме `/api` и WebSocket проксируются на `VITE_API_PROXY` (`vite.config.ts`).
+
+Mock воспроизводит контракт, а не придумывает его: асинхронную генерацию сценария
+(`202 {jobId}` → опрос `/ai-jobs/{jobId}`), пакетный журнал событий с `clientSeq`,
+коды `409/422` там, где их задаёт контракт. Расчёт оценки в mock — FIXTURE, в проде
+его выполняют go-core и ai-service.
+
+## Голосовой режим
+
+- Запись реплики — `MediaRecorder` по удержанию «Говорить» (или клик-старт/клик-стоп,
+  если в занятии выключен push-to-talk). Микрофон доступен только в защищённом
+  контексте: `https://…` или `http://localhost`.
+- Нет доступа к микрофону — панель переходит на текстовый ввод, попытка не ломается.
+- Распознавание речи (STT) выполняет ai-service. В mock-режиме запись отправляется
+  вместе с расшифровкой, которую вводит обучающийся: реплика за него не придумывается.
+- Голос заявителя: аудио ai-service (`/media/tts`); пока его нет — синтезатор
+  браузера на голосах ОС (работает офлайн, если в системе есть русский голос).
+
+## Ограничения mock (заблокировано backend)
+
+STT/TTS/LLM-заявитель и AI-слои оценки, WebSocket-мониторинг (сейчас опрос раз в 3 с),
+разные вкладки браузера не видят данные друг друга (каждая вкладка — своя mock-БД).

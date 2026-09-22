@@ -6,13 +6,15 @@ import { WhatHappened } from './WhatHappened';
 import { ServicesBar } from './ServicesBar';
 import { CallPanel } from '../call-panel/CallPanel';
 import { NumberInput } from '../../components/ui';
+import { Icon } from '../../components/Icon';
 import { useEscape } from '../../components/useEscape';
 import { APPLICANT_STATUSES } from '../../shared/types';
 import { isAddressFilled } from '../../shared/utils/card';
 import { cls } from '../../shared/utils/cls';
 import { formatClock } from '../../shared/utils/time';
 import type {
-  ApplicantStatus, AttributeValue, Attempt, IncidentCardDraft, StudentCallScript, User,
+  ApplicantStatus, AttemptEventType, AttributeValue, Attempt, IncidentCardDraft,
+  StudentCallScript, User,
 } from '../../shared/types';
 import type { SaveState } from '../attempt-runtime/useAttemptRuntime';
 
@@ -39,6 +41,7 @@ export function IncidentCard({
   onFieldChange,
   onServicesChanged,
   onReplay,
+  onEvent,
   onSubmit,
 }: {
   attempt: Attempt;
@@ -54,6 +57,8 @@ export function IncidentCard({
   onFieldChange: (field: string, value: unknown) => void;
   onServicesChanged: () => void;
   onReplay: () => void;
+  /** журнал попытки: панель разговора пишет в него удержание кнопки ответа */
+  onEvent: (type: AttemptEventType, payload?: Record<string, unknown>) => void;
   onSubmit: () => void;
 }) {
   const [reference, setReference] = useState<{ title: string; text: string } | null>(null);
@@ -136,7 +141,7 @@ export function IncidentCard({
       <div className="arm-top">
         <div className="arm-top__cell arm-top__disconnect">
           <div className="arm-top__hangup">
-            <span className="arm-top__hangup-icon">📞</span>
+            <span className="arm-top__hangup-icon"><Icon name="phone-hangup" size={15} /></span>
             <span>Отключение</span>
           </div>
           <div className="arm-top__minibtns">
@@ -256,7 +261,7 @@ export function IncidentCard({
               }}
               style={card.applicant.foreignLanguage ? { background: 'var(--arm-selected)', color: '#fff' } : undefined}
             >
-              🗛
+              <Icon name="language" size={13} />
             </button>
           </div>
 
@@ -296,7 +301,15 @@ export function IncidentCard({
             </div>
           </div>
 
-          {callScript && <CallPanel script={callScript} onReplay={onReplay} />}
+          {callScript && (
+            <CallPanel
+              attemptId={attempt.id}
+              script={callScript}
+              disabled={readOnly}
+              onReplay={onReplay}
+              onEvent={onEvent}
+            />
+          )}
         </div>
 
         <div className="arm-col">
@@ -446,11 +459,12 @@ export function IncidentCard({
               <button type="button" className="arm-save" disabled={readOnly} onClick={onSubmit}>
                 {submitting ? 'Сохранение…' : 'сохранить'}
               </button>
-              <button type="button" className="arm-iconbtn" disabled title="Связи между карточками: в этой версии недоступно">🔗</button>
-              <button type="button" className="arm-iconbtn" disabled title="Напоминание: в этой версии недоступно">⏱</button>
-              <button type="button" className="arm-iconbtn" disabled title="Важное происшествие: в этой версии недоступно">✋</button>
-              <button type="button" className="arm-iconbtn" disabled title="Уведомления: в этой версии недоступно">🔔</button>
-              <button type="button" className="arm-iconbtn" disabled title="Сообщить о проблеме: в этой версии недоступно">💬</button>
+              {/* Резерв под функции реального АРМ: кнопки видны, но недоступны — см. title. */}
+              <button type="button" className="arm-iconbtn" disabled title="Связи между карточками: в этой версии недоступно" aria-label="Связи между карточками"><Icon name="link" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Напоминание: в этой версии недоступно" aria-label="Напоминание"><Icon name="alarm" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Важное происшествие: в этой версии недоступно" aria-label="Важное происшествие"><Icon name="flag" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Уведомления: в этой версии недоступно" aria-label="Уведомления"><Icon name="bell" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Сообщить о проблеме: в этой версии недоступно" aria-label="Сообщить о проблеме"><Icon name="message" /></button>
             </div>
           </div>
         </ServicesBar>

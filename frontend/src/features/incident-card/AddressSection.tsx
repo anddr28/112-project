@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../shared/api';
+import { Icon } from '../../components/Icon';
 import { useEscape } from '../../components/useEscape';
 import { SOURCE_LABELS } from '../../shared/utils/address';
 import { emptyAddress } from '../../shared/utils/card';
@@ -263,7 +264,7 @@ function MapDialog({
             }}
           >
             <div>
-              <div style={{ fontSize: 22, marginBottom: 6 }}>📍</div>
+              <div style={{ marginBottom: 6, color: 'var(--arm-text-2)' }}><Icon name="pin" size={20} /></div>
               <div>{value.raw || 'Адрес не выбран'}</div>
               {value.lat != null && (
                 <div className="mono" style={{ marginTop: 6 }}>
