@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api, hasErrorCode, isApiError } from '../../shared/api';
 import { cls } from '../../shared/utils/cls';
-import { micStateText, useRecorder, type Recording } from './useRecorder';
+import { MAX_RECORDING_MS, micStateText, useRecorder, type Recording } from './useRecorder';
+import {
+  speechFailureText, speechSupported, useSpeechRecognition, type SpeechFailure,
+} from './useSpeechRecognition';
 import type {
   AttemptEventType, DialogueEndReason, DialogueState, DialogueTurnView, StudentCallScript,
 } from '../../shared/types';
@@ -54,6 +57,13 @@ const END_REASON_TEXT: Record<DialogueEndReason, string> = {
   timeout: 'Разговор прерван по времени',
 };
 
+const STT_STATUS: Record<SttState, string> = {
+  idle: 'Аудиозапись сохранена.',
+  pending: 'Аудиозапись сохранена. Браузер распознаёт речь…',
+  ready: 'Речь распознана. Проверьте текст расшифровки и нажмите «Отправить».',
+  manual: 'Аудиозапись сохранена. Автоматическая расшифровка недоступна — введите текст реплики.',
+};
+
 /** Ключ реплики: у оператора и заявителя один номер хода на двоих. */
 function turnKey(turn: DialogueTurnView): string {
   return `${turn.speaker}-${turn.turnNo}`;
@@ -85,6 +95,25 @@ function playCaller(turn: DialogueTurnView, ttsEnabled: boolean): void {
   speak(turn.text);
 }
 
+/**
+ * Расшифровка записанной реплики до отправки:
+ *   pending — браузер распознаёт речь; ready — распознанный текст в поле;
+ *   manual — распознавания нет, расшифровку вводит обучающийся.
+ *
+ * Заготовленные реплики сюда не попадают никогда: в поле либо то, что
+ * распознал браузер, либо то, что ввёл сам обучающийся.
+ */
+type SttState = 'idle' | 'pending' | 'ready' | 'manual';
+
+/**
+ * Граница между нажатием и удержанием.
+ *
+ * Отпустили раньше — это обычное нажатие, запись продолжается до второго
+ * нажатия («Остановить запись»). Держали дольше — рация: запись кончается
+ * вместе с удержанием.
+ */
+const HOLD_MS = 500;
+
 function formatSec(ms: number): string {
   return `${(ms / 1000).toFixed(1).replace('.', ',')} с`;
 }
@@ -112,10 +141,37 @@ function DialoguePanel({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [draft, setDraft] = useState('');
   const [retryIn, setRetryIn] = useState(0);
-  const recorder = useRecorder();
   /** Записанная реплика, ожидающая расшифровки или отправки. */
   const [clip, setClip] = useState<Recording | null>(null);
+  const [stt, setStt] = useState<SttState>('idle');
+  /** Почему расшифровки нет: показываем причину, а не выдуманный текст. */
+  const [sttReason, setSttReason] = useState<SpeechFailure | null>(null);
+  /** Распознано на устройстве — звук наружу не отправлялся. */
+  const [sttLocal, setSttLocal] = useState(false);
+  /** Номер текущего распознавания: поздний ответ по старой записи игнорируется. */
+  const sttRun = useRef(0);
   const micChecked = useRef(false);
+  /** Расшифровка объявлена ниже: авто-стоп обращается к ней через ref. */
+  const transcribeRef = useRef<((rec: Recording) => Promise<void>) | null>(null);
+  /** Момент нажатия на кнопку записи: по нему отличаем удержание от нажатия. */
+  const pressedAt = useRef(0);
+  /** Микрофон ещё выдаётся: отпускание кнопки не должно отменять старт. */
+  const [starting, setStarting] = useState(false);
+
+  /** Запись остановил лимит длительности — обрабатываем как обычное завершение. */
+  const handleAutoStop = useCallback((result: Recording | null) => {
+    if (!result) return;
+    onEvent('ptt_stop', { durationMs: result.durationMs, mime: result.mime, reason: 'limit' });
+    setNotice({
+      kind: 'noSpeech',
+      text: `Достигнут предел длительности записи (${Math.round(MAX_RECORDING_MS / 1000)} с). Запись сохранена.`,
+    });
+    setClip(result);
+    void transcribeRef.current?.(result);
+  }, [onEvent]);
+
+  const recorder = useRecorder({ onAutoStop: handleAutoStop });
+  const speech = useSpeechRecognition();
 
   /**
   * Реплика, которую отклонил занятый заявитель: повторяем её тем же номером
@@ -124,6 +180,8 @@ function DialoguePanel({
   const [pendingRetry, setPendingRetry] = useState<{ turnNo: number; text: string; audio: Recording | null } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const voiceInput = script.voice.input !== 'text';
+  // Распознавание речи есть не во всяком браузере и не во всякой сети.
+  const speechAvailable = speechSupported();
   const ttsEnabled = script.voice.ttsEnabled;
 
   // Восстановление разговора: и при первом входе, и после перезагрузки
@@ -198,7 +256,10 @@ function DialoguePanel({
           return;
         }
 
+        sttRun.current += 1;
         setClip(null);
+        setStt('idle');
+        setSttReason(null);
         if (result.caller) playCaller(result.caller, ttsEnabled);
 
         setState((prev) =>
@@ -248,42 +309,116 @@ function DialoguePanel({
     [attemptId, phase, refresh, state, ttsEnabled],
   );
 
+  /**
+   * Расшифровка записанной реплики.
+   *
+   * Текст берётся только у распознавания браузера — это речь самого
+   * обучающегося. Если распознавания нет, поле остаётся пустым и заполняется
+   * вручную: подставлять реплику из сценария вместо распознанной речи нельзя,
+   * иначе транскрипт и оценка разговора станут вымыслом.
+   */
+  const transcribe = useCallback(
+    async (_rec: Recording) => {
+      const run = ++sttRun.current;
+      setStt('pending');
+      const { result, reason } = await speech.stop();
+      if (run !== sttRun.current) return;
+      if (!result) {
+        setSttReason(reason);
+        setSttLocal(false);
+        setStt('manual');
+        return;
+      }
+      setDraft(result.text);
+      setSttReason(null);
+      setSttLocal(result.local);
+      setStt('ready');
+    },
+    [speech],
+  );
+
+  // Авто-стоп по лимиту длительности вызывает расшифровку через эту ссылку.
+  useEffect(() => {
+    transcribeRef.current = transcribe;
+  }, [transcribe]);
+
+  function discardClip() {
+    sttRun.current += 1;
+    speech.cancel();
+    setClip(null);
+    setStt('idle');
+    setSttReason(null);
+    setDraft('');
+  }
+
   const recording = recorder.recording;
   const { start: startRecording, stop: stopRecording } = recorder;
 
   const startPtt = useCallback(async () => {
-    if (recording || disabled || phase !== 'idle' || state?.callEnded) return;
+    if (recording || starting || disabled || phase !== 'idle' || state?.callEnded) return;
     setNotice(null);
+    // Новая запись заменяет прежнюю вместе с её расшифровкой.
+    sttRun.current += 1;
+    setStt('idle');
+    setSttReason(null);
     onEvent('ptt_start');
+    /*
+     * Доступ к микрофону выдаётся асинхронно. Пока он выдаётся, кнопка
+     * показывает «Включаем микрофон…», а отпускание кнопки старт не отменяет:
+     * иначе первое нажатие (когда браузер спрашивает разрешение) пропадало бы.
+     */
+    setStarting(true);
     const ok = await startRecording();
+    // Распознавание слушает ту же реплику параллельно с записью.
+    if (ok) await speech.start();
+    setStarting(false);
     if (!micChecked.current) {
       micChecked.current = true;
       onEvent('mic_check', { ok });
     }
-  }, [disabled, onEvent, phase, recording, startRecording, state?.callEnded]);
+  }, [disabled, onEvent, phase, recording, speech, startRecording, starting, state?.callEnded]);
 
   const stopPtt = useCallback(async () => {
+    const wasRecording = recording;
     const result = await stopRecording();
     if (!result) {
-      if (recording) {
+      if (wasRecording) {
+        speech.cancel();
         onEvent('ptt_stop', { durationMs: 0 });
-        setNotice({ kind: 'noSpeech', text: 'Запись слишком короткая. Удерживайте «Говорить», пока говорите.' });
+        setNotice({
+          kind: 'noSpeech',
+          text: 'Запись слишком короткая. Нажмите «Начать запись», скажите реплику и нажмите «Остановить запись».',
+        });
       }
       return;
     }
     onEvent('ptt_stop', { durationMs: result.durationMs, mime: result.mime });
-    const text = draft.trim();
-    if (text) {
-      void send(text, undefined, result);
+    // Запись не уходит сразу: сначала расшифровка, её проверяет обучающийся.
+    setClip(result);
+    void transcribe(result);
+  }, [onEvent, recording, speech, stopRecording, transcribe]);
+
+  /**
+   * Одно действие на кнопке: нажатие начинает или заканчивает запись.
+   * Удержание дольше HOLD_MS работает как рация — отпустили, запись кончилась.
+   */
+  const pressRecord = useCallback(() => {
+    pressedAt.current = Date.now();
+    if (recording) {
+      void stopPtt();
       return;
     }
-    /*
-     * Распознавание речи выполняет ai-service. В демо-режиме без него запись
-     * отправляется вместе с расшифровкой, которую вводит обучающийся: реплику
-     * за него не придумываем, иначе транскрипт и оценка разговора стали бы фикцией.
-     */
-    setClip(result);
-  }, [draft, onEvent, recording, send, stopRecording]);
+    if (starting) return;
+    void startPtt();
+  }, [recording, starting, startPtt, stopPtt]);
+
+  const releaseRecord = useCallback(() => {
+    const held = Date.now() - pressedAt.current;
+    pressedAt.current = 0;
+    // Короткое нажатие оставляет запись идти: остановит второе нажатие.
+    if (held < HOLD_MS || !recording) return;
+    void stopPtt();
+  }, [recording, stopPtt]);
 
   async function hangUp() {
     if (!state || state.callEnded) return;
@@ -305,7 +440,8 @@ function DialoguePanel({
   const ended = Boolean(state?.callEnded);
   const busy = phase === 'sending';
   const composeDisabled = disabled || ended || phase === 'loading' || phase === 'failed';
-  const canSend = !composeDisabled && !busy && !recording && draft.trim().length > 0;
+  const transcribing = stt === 'pending';
+  const canSend = !composeDisabled && !busy && !recording && !transcribing && draft.trim().length > 0;
   const micProblem = micStateText(recorder.mic);
   const micBlocked = micProblem != null;
 
@@ -367,13 +503,17 @@ function DialoguePanel({
             : busy
               ? 'Заявитель отвечает…'
               : recording
-                ? 'Идёт запись…'
+                ? speech.partial
+                  ? `Идёт запись. Слышу: «${speech.partial}»`
+                  : 'Идёт запись. Нажмите «Остановить запись», когда договорите.'
                 : recorder.mic === 'requesting'
                   ? 'Запрашиваем доступ к микрофону…'
                   : voiceInput && micProblem
                     ? micProblem
                     : clip
-                      ? 'Запись сохранена. Введите расшифровку реплики и нажмите «Отправить».'
+                      ? stt === 'manual' && sttReason
+                        ? `Аудиозапись сохранена. ${speechFailureText(sttReason)}`
+                        : STT_STATUS[stt]
                       : 'Можно задать вопрос заявителю'}
       </div>
 
@@ -382,12 +522,22 @@ function DialoguePanel({
           <label className="call-compose__field">
             <span className="arm-fld__label">
               {clip ? 'Расшифровка записанной реплики' : 'Реплика оператора'}
+              {clip && stt === 'ready' && (
+                <span className="dim"> · распознано браузером{sttLocal ? ' на устройстве' : ''}</span>
+              )}
+              {clip && stt === 'manual' && <span className="dim"> · ввод вручную</span>}
             </span>
             <input
               className="arm-line-input"
               value={draft}
-              disabled={composeDisabled || busy}
-              placeholder={clip ? 'Введите то, что вы сказали' : 'Введите вопрос заявителю'}
+              disabled={composeDisabled || busy || transcribing}
+              placeholder={
+                transcribing
+                  ? 'Распознавание речи…'
+                  : clip
+                    ? 'Введите то, что вы сказали'
+                    : 'Введите вопрос заявителю'
+              }
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 // Enter отправляет реплику и никогда не кладёт трубку.
@@ -413,7 +563,7 @@ function DialoguePanel({
             <div className="call-clip">
               <span>Запись {formatSec(clip.durationMs)}</span>
               <audio controls src={clip.url} aria-label="Прослушать свою запись" />
-              <button type="button" className="arm-mini" disabled={busy} onClick={() => setClip(null)}>
+              <button type="button" className="arm-mini" disabled={busy} onClick={discardClip}>
                 Удалить запись
               </button>
             </div>
@@ -426,31 +576,33 @@ function DialoguePanel({
                 className={cls('arm-mini', 'call-ptt', recording && 'is-active')}
                 disabled={composeDisabled || busy || (micBlocked && !recording)}
                 aria-pressed={recording}
-                title={micProblem ?? undefined}
-                {...(script.voice.pushToTalk
-                  ? {
-                      onPointerDown: () => void startPtt(),
-                      onPointerUp: () => void stopPtt(),
-                      onPointerLeave: () => void stopPtt(),
-                      onPointerCancel: () => void stopPtt(),
-                      onKeyDown: (e: ReactKeyboardEvent) => {
-                        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
-                          e.preventDefault();
-                          void startPtt();
-                        }
-                      },
-                      onKeyUp: (e: ReactKeyboardEvent) => {
-                        if (e.key === ' ' || e.key === 'Enter') {
-                          e.preventDefault();
-                          void stopPtt();
-                        }
-                      },
-                    }
-                  : { onClick: () => void (recording ? stopPtt() : startPtt()) })}
+                title={micProblem ?? 'Нажмите, чтобы начать и закончить запись. Кнопку можно и удерживать.'}
+                /*
+                 * Захват указателя: отпускание засчитывается кнопке, даже если
+                 * курсор ушёл в сторону. Обработчика pointerleave нет намеренно —
+                 * именно он обрывал запись при малейшем смещении мыши.
+                 */
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  try {
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                  } catch {
+                    // захват — удобство, а не условие записи: без него работает обычный сценарий
+                  }
+                  pressRecord();
+                }}
+                onPointerUp={releaseRecord}
+                onPointerCancel={releaseRecord}
+                onLostPointerCapture={releaseRecord}
+                onKeyDown={(e: ReactKeyboardEvent) => {
+                  // Пробел и Enter — только на самой кнопке, ввод текста не затрагивается.
+                  if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+                    e.preventDefault();
+                    pressRecord();
+                  }
+                }}
               >
-                {recording
-                  ? script.voice.pushToTalk ? 'Идёт запись…' : 'Остановить запись'
-                  : script.voice.pushToTalk ? 'Говорить (удерживать)' : 'Начать запись'}
+                {recording ? '● Остановить запись' : starting ? 'Включаем микрофон…' : 'Начать запись'}
               </button>
             )}
 
@@ -460,7 +612,7 @@ function DialoguePanel({
               disabled={!canSend}
               onClick={() => void send(draft.trim(), undefined, clip)}
             >
-              {busy ? 'Отправка…' : clip ? 'Отправить запись' : 'Отправить'}
+              {busy ? 'Отправка…' : transcribing ? 'Распознавание…' : 'Отправить'}
             </button>
 
             {pendingRetry && notice?.kind === 'busy' && (
@@ -486,9 +638,11 @@ function DialoguePanel({
           </div>
 
           <div className="call-compose__hint">
-            {voiceInput
-              ? 'Запишите реплику голосом или введите её текстом. Распознавание речи выполняет сервер оценки; в демо-режиме к записи прикладывается расшифровка.'
-              : 'Реплики вводятся текстом — так настроено занятие.'}
+            {!voiceInput
+              ? 'Реплики вводятся текстом — так настроено занятие.'
+              : speechAvailable
+                ? 'Нажмите «Начать запись», скажите реплику, нажмите «Остановить запись» (кнопку можно и удерживать). Что распознал браузер, попадёт в поле расшифровки: проверьте текст и нажмите «Отправить». Если распознать не удалось, введите реплику сами — отправится именно ваш текст.'
+                : 'Браузер не умеет распознавать речь: запишите реплику и введите её текст в поле расшифровки. Отправится именно он, запись прикладывается к ходу.'}
           </div>
         </div>
       )}

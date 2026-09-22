@@ -19,6 +19,8 @@ export interface Recording {
   durationMs: number;
   mime: string;
   recordedAt: string;
+  /** пиковый уровень сигнала 0..1; нет — индикатор уровня недоступен */
+  peakLevel?: number;
 }
 
 /** Короче этого — случайное касание кнопки, а не реплика. */
@@ -50,7 +52,11 @@ export function micStateText(state: MicState): string | null {
   }
 }
 
-export function useRecorder() {
+/**
+ * `onAutoStop` вызывается, когда запись остановил сам лимит длительности:
+ * интерфейс обязан узнать об этом, иначе он продолжит показывать «идёт запись».
+ */
+export function useRecorder({ onAutoStop }: { onAutoStop?: (result: Recording | null) => void } = {}) {
   const [mic, setMic] = useState<MicState>('unknown');
   const [recording, setRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -69,6 +75,14 @@ export function useRecorder() {
   const resolveStop = useRef<((r: Recording | null) => void) | null>(null);
   /** Запись, остановленная по лимиту длины до того, как кнопку отпустили. */
   const autoResult = useRef<Recording | null>(null);
+  /** Пик уровня за запись: тишину незачем отдавать на распознавание. */
+  const recordPeak = useRef(0);
+
+  /** Колбэк берём через ref: перерисовка не должна пересобирать recorder. */
+  const autoStopHandler = useRef(onAutoStop);
+  useEffect(() => {
+    autoStopHandler.current = onAutoStop;
+  }, [onAutoStop]);
 
   const stopMeter = useCallback(() => {
     if (raf.current != null) cancelAnimationFrame(raf.current);
@@ -141,7 +155,9 @@ export function useRecorder() {
       node.getByteTimeDomainData(data);
       let peak = 0;
       for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
-      setLevel(Math.min(1, peak / 64));
+      const value = Math.min(1, peak / 64);
+      recordPeak.current = Math.max(recordPeak.current, value);
+      setLevel(value);
       setElapsedMs(Date.now() - startedAt.current);
       raf.current = requestAnimationFrame(tick);
     };
@@ -174,14 +190,32 @@ export function useRecorder() {
       const result: Recording | null =
         durationMs < MIN_RECORDING_MS || blob.size === 0
           ? null
-          : { blob, url: URL.createObjectURL(blob), durationMs, mime: type, recordedAt: new Date(startedAt.current).toISOString() };
+          : {
+              blob,
+              url: URL.createObjectURL(blob),
+              durationMs,
+              mime: type,
+              recordedAt: new Date(startedAt.current).toISOString(),
+              peakLevel: analyser.current ? recordPeak.current : undefined,
+            };
       const done = resolveStop.current;
       resolveStop.current = null;
-      if (done) done(result);
-      else autoResult.current = result;
+      if (done) {
+        done(result);
+        return;
+      }
+      /*
+       * Остановка не по команде пользователя — сработал лимит длительности.
+       * Запись отдаём сразу: держать её до отпускания кнопки нельзя, иначе
+       * интерфейс покажет «идёт запись» после того, как она уже кончилась.
+       */
+      autoResult.current = null;
+      setRecording(false);
+      autoStopHandler.current?.(result);
     };
     recorder.current = rec;
     startedAt.current = Date.now();
+    recordPeak.current = 0;
     setElapsedMs(0);
     rec.start(250);
     setRecording(true);
@@ -189,6 +223,7 @@ export function useRecorder() {
     autoResult.current = null;
     autoStop.current = setTimeout(() => {
       if (rec.state !== 'recording') return;
+      cancelled.current = true;
       stopMeter();
       rec.stop();
     }, MAX_RECORDING_MS);

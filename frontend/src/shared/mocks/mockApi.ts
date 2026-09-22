@@ -17,7 +17,7 @@ import { computeAllowedNext, isTerminal } from './reactionTransitions';
 import {
   attemptById, clearAttemptRuntime, db, dialogueRecord, evaluateComplete, evaluatePartial,
   issueAttempts, lessonById, makeLessonSettings, nextIncidentNo, normalizeWeights,
-  persistAttemptRuntime, persistCompletedAttempt, persistFeedback, persistLesson, persistScenario,
+  persistAttemptRuntime, persistCompletedAttempt, persistFeedback, persistLesson, persistScenario, withDialogueWeight,
   scenarioById, setUserBlocked,
 } from './db';
 import { dialogueFixture } from './fixtures/dialogue';
@@ -782,7 +782,10 @@ export const mockApi: Api = {
             voice,
             // Вес разговора имеет смысл только при включённом голосе;
             // иначе его доля перераспределяется между остальными слоями.
-            weights: normalizeWeights(input.weights ?? base.weights, voice.enabled),
+            weights: normalizeWeights(
+              input.weights ?? (voice.enabled ? withDialogueWeight(base.weights) : base.weights),
+              voice.enabled,
+            ),
           };
         })(),
         createdAt: new Date().toISOString(),

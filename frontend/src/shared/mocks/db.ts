@@ -136,6 +136,30 @@ export function makeLessonSettings(): Lesson['settings'] {
   };
 }
 
+/** Доля слоя «Разговор», когда занятие голосовое, а веса не заданы явно. */
+const DEFAULT_DIALOGUE_WEIGHT = 0.25;
+
+/**
+ * Веса для голосового занятия, если преподаватель их не задал.
+ *
+ * Значения по умолчанию рассчитаны на занятие без разговора (`dialogue: 0`),
+ * и оставить их — значит не засчитать разговор вовсе. Остальные слои
+ * пропорционально ужимаются, их соотношение сохраняется.
+ */
+export function withDialogueWeight(weights: Lesson['settings']['weights']): Lesson['settings']['weights'] {
+  if (weights.dialogue > 0) return weights;
+  const rest = 1 - DEFAULT_DIALOGUE_WEIGHT;
+  const sum = weights.fields + weights.semantic + weights.grammar + weights.timing;
+  if (sum <= 0) return { ...weights, dialogue: DEFAULT_DIALOGUE_WEIGHT };
+  return {
+    fields: (weights.fields / sum) * rest,
+    semantic: (weights.semantic / sum) * rest,
+    grammar: (weights.grammar / sum) * rest,
+    timing: (weights.timing / sum) * rest,
+    dialogue: DEFAULT_DIALOGUE_WEIGHT,
+  };
+}
+
 /**
  * Перенормировка весов под голосовой режим.
  *

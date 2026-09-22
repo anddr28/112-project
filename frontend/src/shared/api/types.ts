@@ -89,7 +89,7 @@ export interface DialogueTurnInput {
   turnNo: number;
   /** текстовый режим и запасной вариант при отказе микрофона */
   text?: string;
-  /** запись реплики; mock-реализация распознаванием не владеет */
+  /** запись реплики; текст при этом — расшифровка, проверенная обучающимся */
   audio?: Blob;
   clientRecordedAt?: string;
 }
@@ -252,6 +252,10 @@ export interface Api {
    */
   dialogue: {
     get(attemptId: string): Promise<DialogueState>;
+    /**
+     * Ход разговора. Речь оператора распознаёт сервер (ai-service внутри
+     * этого запроса) — отдельного STT-endpoint контракт не предусматривает.
+     */
     turn(input: DialogueTurnInput): Promise<DialogueTurnResponse>;
     /** «Положить трубку»: разговор закрыт, карточку можно дозаполнить. */
     end(attemptId: string): Promise<DialogueState>;
