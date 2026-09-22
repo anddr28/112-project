@@ -8,7 +8,7 @@
  *      из раздела 12-bis плана. Их нужно согласовать до реализации go-core.
  */
 
-import type { Address, CallScript, GrammarResult, IncidentCard, SemanticResult, Score } from './contracts';
+import type { Address, CallScript, Engine, ExpectedAction, GrammarResult, IncidentCard, Scoring, SemanticResult, Score } from './contracts';
 
 // ─────────────────────────────────────────────────────────── перечисления (SQL)
 
@@ -38,10 +38,7 @@ export type Verdict = 'pending' | 'pass' | 'fail';
 export type Difficulty = 1 | 2 | 3;
 export type ServiceKind = 'emergency' | 'city';
 
-/**
- * TODO(backend) GAP-07 / B-14: перспективы рабочего места в контракте нет.
- * Предлагается хранить в `lessons.settings.perspective` (jsonb, без миграции).
- */
+/** Рабочее место обучающегося: оператор-112 или диспетчер ДДС (frontend.v1.yaml). */
 export type ArmPerspective = 'operator112' | 'dds';
 
 // ─────────────────────────────────────────────────────────────────── сущности
@@ -61,6 +58,8 @@ export interface User {
   workstation?: string;
   /** операторский номер, отображается в карточке */
   operatorNo?: string;
+  /** учебные группы пользователя */
+  groupIds?: string[];
 }
 
 export interface ServiceRef {
@@ -83,6 +82,8 @@ export interface IncidentType {
   synonyms: string[];
   /** есть ли справочная страница: сплошное подчёркивание vs пунктир */
   hasReference: boolean;
+  /** родитель в дереве классификатора */
+  parentId?: string;
 }
 
 /**
@@ -278,6 +279,23 @@ export interface AssignedService {
 
 // ──────────────────────────────────────────────────── сценарии, занятия, попытки
 
+/** Фоновая AI-задача (frontend.v1.yaml → AiJob). */
+export type AiJobType = 'evaluate_grammar' | 'evaluate_semantic' | 'evaluate_dialogue' | 'generate_scenario' | 'tts';
+export type AiJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export interface AiJob {
+  id: string;
+  type: AiJobType;
+  status: AiJobStatus;
+  refType?: string;
+  refId?: string;
+  tryCount?: number;
+  error?: string;
+  queuePosition?: number;
+  estWaitSec?: number;
+  createdAt: string;
+  finishedAt?: string;
+}
+
 export interface Scenario {
   id: string;
   title: string;
@@ -287,7 +305,12 @@ export interface Scenario {
   mode: LessonMode | 'both';
   source: ScenarioSource;
   status: ScenarioStatus;
-  callScript: CallScript;
+  /**
+   * Легенда звонка. `dialogue` — бриф ИИ-заявителя: он определяет, что и когда
+   * заявитель готов рассказать. Преподавательские данные: обучающемуся не
+   * отдаются ни бриф, ни keyFacts (см. StudentCallScript).
+   */
+  callScript: CallScript & { dialogue?: DialogueBrief };
   etalonCard: IncidentCard;
   /** расширенный эталон для сверки карточки студента */
   etalonDraft: IncidentCardDraft;
@@ -299,6 +322,30 @@ export interface Scenario {
   validatedAt?: string;
   createdAt: string;
   etalonVersion: number;
+  /** чек-лист протокола опроса — по нему оценивается разговор */
+  expectedDialogue?: ExpectedDialogue;
+  /** модель и версия промпта генерации — для контроля качества */
+  generationMeta?: Record<string, unknown>;
+  /** все реплики озвучены и лежат в кэше */
+  ttsReady?: boolean;
+  /** переопределение весов и обязательных полей для сценария */
+  scoring?: Scoring;
+  /** эталон режима «действия с карточками» */
+  expectedActions?: ExpectedAction[];
+  /*
+   * Версии сценария. Решение backend по lifecycle: сценарий, который уже
+   * используется в занятиях, не правится — от него создаётся новая версия
+   * (POST /scenarios/{id}/versions). BACKEND DEPENDENCY: в frontend.v1.yaml
+   * этих полей пока нет; имена согласовать при добавлении в контракт.
+   */
+  /** используется хотя бы в одном занятии — признак отдаёт сервер, не статус */
+  inUse?: boolean;
+  /** число занятий, где используется сценарий (для сообщения об ошибке) */
+  lessonsCount?: number;
+  /** номер версии в цепочке; у исходного сценария — 1 */
+  version?: number;
+  /** сценарий, копией которого создана эта версия */
+  parentScenarioId?: string;
 }
 
 export interface Lesson {
@@ -320,17 +367,38 @@ export interface Lesson {
   finishedAt?: string;
 }
 
+/** `frontend.v1.yaml#/VoiceSettings` — голосовой режим занятия. */
+export type VoiceInput = 'voice' | 'text' | 'both';
+
+export interface VoiceSettings {
+  /** интерактивный разговор с ИИ-заявителем вместо сценарных реплик */
+  enabled: boolean;
+  /** voice — микрофон; text — реплики текстом; both — на выбор обучающегося */
+  input: VoiceInput;
+  /** true — удерживать кнопку; false — «клик-старт / клик-стоп» */
+  pushToTalk: boolean;
+  maxTurns: number;
+  ttsEnabled: boolean;
+}
+
 export interface LessonSettings {
   passThreshold: number;
-  weights: { fields: number; semantic: number; grammar: number; timing: number };
+  /**
+   * Сумма = 1. При `voice.enabled = false` вес разговора равен нулю,
+   * и итог считается по оставшимся слоям.
+   */
+  weights: { fields: number; semantic: number; grammar: number; timing: number; dialogue: number };
   cardsPerStudent: number;
   allowReplay: boolean;
+  voice: VoiceSettings;
 }
 
 export interface LessonParticipant {
   userId: string;
   name: string;
   status: ParticipantStatus;
+  /** прошёл проверку микрофона (событие mic_check) */
+  micReady?: boolean;
   attemptId?: string;
   joinedAt?: string;
   finishedAt?: string;
@@ -358,13 +426,26 @@ export interface Attempt {
   incidentNo: string;
   /** серверное время на момент ответа — база для расчёта таймера */
   serverNow: string;
+  /** режим разговора этой попытки (копия настроек занятия) */
+  voice: VoiceSettings;
+  /** краткое состояние разговора; полный транскрипт — отдельным запросом */
+  dialogue?: {
+    turnsCount: number;
+    callEnded: boolean;
+    callEndedAt?: string;
+  };
 }
 
 /** Урезанный call script для студента: без keyFacts (GAP-11). */
 export interface StudentCallScript {
   caller: CallScript['caller'];
+  /**
+   * В голосовом режиме — только вступительная реплика; дальнейшие приходят
+   * в состоянии разговора. В текстовом — все сценарные реплики.
+   */
   turns: CallTurnView[];
   allowReplay: boolean;
+  voice: VoiceSettings;
 }
 
 export interface CallTurnView {
@@ -393,13 +474,27 @@ export type AttemptEventType =
   | 'submitted'
   | 'timer_expired'
   | 'disconnected'
-  | 'reconnected';
+  | 'reconnected'
+  // ───────────────────────────────────── голосовой режим (frontend.v1.yaml)
+  | 'mic_check'
+  | 'ptt_start'
+  | 'ptt_stop'
+  | 'dialogue_operator'
+  | 'dialogue_caller'
+  | 'dialogue_ended';
 
-export interface AttemptEvent {
+/** Событие попытки, как его отправляет клиент (frontend.v1.yaml → AttemptEventInput). */
+export interface AttemptEventInput {
+  /** сквозной номер события попытки, начиная с 1; по нему сервер отбрасывает дубли */
   clientSeq: number;
   type: AttemptEventType;
   payload?: Record<string, unknown>;
   at: string;
+}
+
+/** Сохранённое событие: к клиентским полям сервер добавляет id. */
+export interface AttemptEvent extends AttemptEventInput {
+  id: number;
 }
 
 // ─────────────────────────────────────────────────────────────────── оценка
@@ -415,7 +510,13 @@ export interface FieldError {
 
 export interface Recommendation {
   id: string;
-  kind: 'weak_category' | 'weak_field' | 'slow_timing' | 'grammar_pattern' | 'general';
+  kind:
+    | 'weak_category'
+    | 'weak_field'
+    | 'slow_timing'
+    | 'grammar_pattern'
+    | 'dialogue_pattern'
+    | 'general';
   body: string;
   /**
    * Перечисление, относящееся к рекомендации: названия незаполненных полей
@@ -443,11 +544,21 @@ export interface Evaluation {
   timingScore?: Score;
   grammarScore?: Score;
   semanticScore?: Score;
+  dialogueScore?: Score;
   totalScore: number;
   verdict: Verdict;
   fieldErrors: FieldError[];
   grammar?: GrammarResult;
   semantic?: SemanticResult;
+  dialogue?: DialogueResult;
+  /**
+   * Веса, по которым посчитан итог. Интерфейс показывает их, а не собственные
+   * константы: занятие могло переопределить веса, и подпись «· 50%» обязана
+   * совпадать с формулой.
+   */
+  weights: LessonSettings['weights'];
+  /** состояние AI-слоёв для индикаторов «считается / не выполнено» */
+  layers?: Partial<Record<EvaluationLayer, EvaluationLayerState>>;
   timing: {
     spentMs: number;
     limitSec: number;
@@ -468,6 +579,182 @@ export interface Evaluation {
     at: string;
   };
   finalScore: number;
+  /** версии движков оценки — воспроизводимость для QA */
+  engine?: Engine;
+  /** опыт, начисленный за попытку */
+  xpEarned?: number;
 }
+
+// ──────────────────────────────────────────────────── разговор с заявителем
+
+/** Ссылка на озвученную реплику (`frontend.v1.yaml#/AudioRef`). */
+export interface AudioRef {
+  /** относительный URL для воспроизведения; авторизация по сессии */
+  audioUrl: string;
+  durationMs: number;
+  mime?: string;
+}
+
+export type DialogueSpeaker = 'operator' | 'caller';
+
+/** Источник текста реплики: распознавание, ручной ввод, сценарий, модель. */
+export type DialogueTurnSource = 'stt' | 'text' | 'script' | 'llm';
+
+export interface DialogueTurnView {
+  turnNo: number;
+  speaker: DialogueSpeaker;
+  text: string;
+  /** миллисекунды от момента принятия вызова */
+  atMs: number;
+  at?: string;
+  durationMs?: number;
+  /** уверенность распознавания; только для реплик оператора */
+  confidence?: number;
+  source: DialogueTurnSource;
+  audio?: AudioRef;
+  /** только для заявителя — индикатор состояния в интерфейсе */
+  emotionalState?: string;
+}
+
+export type DialogueEndReason =
+  | 'operator_hung_up'
+  | 'caller_hung_up'
+  | 'max_turns'
+  | 'submitted'
+  | 'timeout';
+
+export interface DialogueState {
+  attemptId: string;
+  turns: DialogueTurnView[];
+  callEnded: boolean;
+  callEndedAt?: string;
+  endReason?: DialogueEndReason;
+  input: VoiceInput;
+  /** номер следующего хода — единственный источник нумерации для интерфейса */
+  nextTurnNo: number;
+  turnsLeft?: number;
+}
+
+export interface DialogueTurnResponse {
+  turnNo: number;
+  operator?: DialogueTurnView;
+  caller?: DialogueTurnView;
+  /** речь не распознана — реплика оператора не сохранена */
+  noSpeech: boolean;
+  callEnded: boolean;
+  endReason?: DialogueEndReason;
+  /** модель недоступна — ответ взят из сценарных реплик */
+  fallback: boolean;
+  nextTurnNo: number;
+  latencyMs?: number;
+}
+
+// ─────────────────────────────────────── бриф заявителя и чек-лист протокола
+
+/** Когда заявитель сообщает факт: сам, по вопросу или не сообщает никогда. */
+export type FactReveal = 'volunteer' | 'on_request' | 'never';
+
+export interface DialogueFact {
+  id: string;
+  text: string;
+  reveal: FactReveal;
+  /** слова, по которым модель понимает, что факт спрашивают */
+  hints?: string[];
+}
+
+/** Преподавательские данные: обучающемуся не отдаются. */
+export interface DialogueBrief {
+  persona: string;
+  speakingStyle?: string;
+  facts: DialogueFact[];
+  unknowns?: string[];
+  endConditions?: string[];
+  maxTurns?: number;
+}
+
+export type ChecklistItemKind = 'question' | 'instruction' | 'phrase' | 'behavior';
+
+export interface DialogueChecklistItem {
+  id: string;
+  text: string;
+  kind: ChecklistItemKind;
+  required: boolean;
+  weight?: number;
+  hints?: string[];
+}
+
+export interface ExpectedDialogue {
+  checklist: DialogueChecklistItem[];
+  forbidden?: string[];
+  maxOperatorTurns?: number;
+}
+
+// ──────────────────────────────────────────────────────── оценка разговора
+
+export type ChecklistStatus = 'done' | 'partial' | 'missed' | 'not_applicable';
+
+export interface DialogueChecklistResult {
+  id: string;
+  /** текст пункта подставляет сервер — интерфейс не ищет его по идентификатору */
+  text: string;
+  kind?: ChecklistItemKind;
+  required?: boolean;
+  status: ChecklistStatus;
+  /** номер реплики, подтверждающей выполнение пункта */
+  evidenceTurnNo?: number;
+  comment?: string;
+}
+
+export interface DialogueResult {
+  score: Score;
+  confidence: number;
+  checklist: DialogueChecklistResult[];
+  missingQuestions?: string[];
+  forbiddenHits?: Array<{ phrase: string; turnNo: number }>;
+  speech: {
+    operatorTurns: number;
+    operatorWords: number;
+    operatorTalkMs?: number;
+    wordsPerMin?: number;
+    fillerCount?: number;
+    fillers?: Record<string, number>;
+    avgResponseMs?: number;
+    maxResponseMs?: number;
+    lowConfidenceTurns?: number;
+  };
+  tone?: {
+    politeness?: Score;
+    calmness?: Score;
+    clarity?: Score;
+    comment?: string;
+  };
+  summaryForStudent?: string;
+}
+
+// ─────────────────────────────────────────────── состояние слоёв и ошибки
+
+export type EvaluationLayer = 'fields' | 'timing' | 'grammar' | 'semantic' | 'dialogue';
+
+export type EvaluationLayerState = 'queued' | 'running' | 'done' | 'failed' | 'skipped';
+
+/**
+ * Машинные коды ошибок сервисного слоя (`frontend.v1.yaml#/ApiError.code`).
+ *
+ * Интерфейс принимает решения по коду, а не по тексту сообщения: текст
+ * показывается пользователю и может меняться, код — часть контракта.
+ */
+export type ApiErrorCode =
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'validation'
+  | 'conflict'
+  | 'user_blocked'
+  | 'ai_unavailable'
+  | 'caller_busy'
+  | 'audio_too_long'
+  | 'audio_unsupported'
+  | 'rate_limited'
+  | 'internal';
 
 export type { Address, CallScript, IncidentCard, GrammarResult, SemanticResult, Score };

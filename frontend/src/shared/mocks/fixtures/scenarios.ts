@@ -8,6 +8,7 @@
 
 import type { IncidentCardDraft, Scenario } from '../../types';
 import { emptyAddress, emptyCard } from '../../utils/card';
+import { dialogueFixture } from './dialogue';
 
 function etalon(partial: Partial<IncidentCardDraft>): IncidentCardDraft {
   return { ...emptyCard(), ...partial };
@@ -24,12 +25,15 @@ export const SCENARIOS: Scenario[] = [
     source: 'generated',
     status: 'validated',
     etalonVersion: 1,
+    expectedDialogue: dialogueFixture('sc-fire-apartment').expected,
+    ttsReady: true,
     createdAt: '2026-09-15T09:12:00+03:00',
     validatedBy: 'Ковалёва И. С.',
     validatedAt: '2026-09-15T10:40:00+03:00',
     notesForTeacher:
       'Проверить, что студент зафиксировал угрозу людям и газовую колонку — от этого зависит состав служб.',
     callScript: {
+      dialogue: dialogueFixture('sc-fire-apartment').brief,
       caller: { name: 'Мария', phone: '+7 (903) 511-33-67', role: 'соседка', emotionalState: 'паника' },
       address: { raw: 'Москва, Тверская улица, 12, подъезд 3', city: 'Москва', street: 'Тверская', house: '12', entrance: '3' },
       keyFacts: [
@@ -101,10 +105,13 @@ export const SCENARIOS: Scenario[] = [
     source: 'generated',
     status: 'validated',
     etalonVersion: 1,
+    expectedDialogue: dialogueFixture('sc-gas-smell').expected,
+    ttsReady: true,
     createdAt: '2026-09-16T11:00:00+03:00',
     validatedBy: 'Ковалёва И. С.',
     validatedAt: '2026-09-16T11:35:00+03:00',
     callScript: {
+      dialogue: dialogueFixture('sc-gas-smell').brief,
       caller: { name: 'Виктор Степанович', phone: '+7 (915) 244-08-91', role: 'житель', emotionalState: 'встревожен' },
       address: { raw: 'Москва, Профсоюзная улица, 45, корпус 2', city: 'Москва', street: 'Профсоюзная', house: '45' },
       keyFacts: ['сильный запах газа в подъезде', 'второй этаж', 'жильцы на месте', 'источник неизвестен'],

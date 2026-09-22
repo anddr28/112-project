@@ -39,7 +39,8 @@ export function LessonDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  if (lesson.loading) return <Loading />;
+  // Заглушка загрузки — только пока показывать нечего.
+  if (lesson.loading && !lesson.data) return <Loading />;
   if (lesson.error) return <ErrorState text={lesson.error} onRetry={lesson.reload} />;
   if (!lesson.data) return <ErrorState text="Занятие не найдено" />;
 
@@ -79,6 +80,7 @@ export function LessonDetailPage() {
             <Badge tone="neutral">{l.perspective === 'operator112' ? 'Оператор-112' : 'Диспетчер ДДС'}</Badge>
             <Badge tone="neutral">Норматив {l.timeLimitSec} с</Badge>
             <Badge tone="neutral">Порог {l.settings.passThreshold}</Badge>
+            {l.settings.voice.enabled && <Badge tone="accent">Голосовой режим</Badge>}
           </div>
         </div>
 
@@ -117,7 +119,13 @@ export function LessonDetailPage() {
 
       <Card
         title={isRunning ? 'Мониторинг в реальном времени' : 'Участники'}
-        actions={isRunning ? <span className="dim small">Обновляется автоматически</span> : undefined}
+        actions={
+          isRunning ? (
+            <span className="dim small">
+              {lesson.refreshing || attempts.refreshing ? 'Обновление…' : 'Обновляется автоматически'}
+            </span>
+          ) : undefined
+        }
       >
         {l.participants.length === 0 ? (
           <p className="muted small">Участники не назначены.</p>
@@ -163,18 +171,25 @@ export function LessonDetailPage() {
 
 function AttemptScore({ attempt }: { attempt?: Attempt }) {
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  /*
+   * Опрос мониторинга пересоздаёт объект попытки каждые несколько секунд.
+   * Зависимости — идентификатор и статус, иначе оценка перезапрашивалась бы
+   * на каждом обновлении списка.
+   */
+  const attemptId = attempt?.id;
+  const attemptStatus = attempt?.status;
 
   useEffect(() => {
-    if (!attempt) return;
+    if (!attemptId) return;
     let cancelled = false;
     void api.evaluation
-      .get(attempt.id)
+      .get(attemptId)
       .then((ev) => {
         if (!cancelled) setEvaluation(ev);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [attempt, attempt?.status]);
+  }, [attemptId, attemptStatus]);
 
   if (!attempt) return <span className="dim">—</span>;
   if (!evaluation) return <span className="dim small">не оценено</span>;

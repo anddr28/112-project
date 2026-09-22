@@ -8,15 +8,34 @@
  */
 
 import type {
-  Attempt, AttemptEvent, Evaluation, FieldError, IncidentCardDraft,
+  Attempt, AttemptEventInput, DialogueEndReason, DialogueResult, DialogueTurnResponse,
+  DialogueTurnView, Evaluation, FieldError, IncidentCardDraft,
   Lesson, Recommendation, Scenario, TeacherFeedback, User,
 } from '../types';
 import { emptyCard, getPath, fieldLabel } from '../utils/card';
 import { formatDuration } from '../utils/time';
 import { attributeLabel, attributeValueLabel, typeById } from './fixtures/classifier';
+import { FILLER_WORDS } from './fixtures/dialogue';
 import { SCENARIOS } from './fixtures/scenarios';
 import { USERS } from './fixtures/users';
 import { uid } from '../utils/id';
+
+/**
+ * Состояние разговора одной попытки.
+ *
+ * `revealedFactIds` — серверная величина: она нужна, чтобы заявитель не
+ * повторял уже раскрытые факты, и обучающемуся не отдаётся никогда.
+ */
+export interface DialogueRecord {
+  turns: DialogueTurnView[];
+  callEnded: boolean;
+  callEndedAt?: string;
+  endReason?: DialogueEndReason;
+  nextTurnNo: number;
+  revealedFactIds: string[];
+  /** ответ на последний ход — для идемпотентного повтора после обрыва связи */
+  lastResponse?: DialogueTurnResponse;
+}
 
 export interface DbState {
   users: User[];
@@ -24,16 +43,24 @@ export interface DbState {
   lessons: Lesson[];
   attempts: Attempt[];
   drafts: Record<string, IncidentCardDraft>;
-  events: Record<string, AttemptEvent[]>;
+  /** события в порядке поступления; id присваивается при чтении */
+  events: Record<string, AttemptEventInput[]>;
   evaluations: Record<string, Evaluation>;
   feedback: TeacherFeedback[];
+  dialogues: Record<string, DialogueRecord>;
 }
 
+/*
+ * Голосовой режим по умолчанию выключен: вес разговора равен нулю, итог
+ * считается по четырём слоям — ровно как до его появления. Включает
+ * преподаватель при создании занятия.
+ */
 const DEFAULT_SETTINGS: Lesson['settings'] = {
   passThreshold: 70,
-  weights: { fields: 0.5, semantic: 0.25, grammar: 0.1, timing: 0.15 },
+  weights: { fields: 0.5, semantic: 0.25, grammar: 0.1, timing: 0.15, dialogue: 0 },
   cardsPerStudent: 1,
   allowReplay: true,
+  voice: { enabled: false, input: 'voice', pushToTalk: true, maxTurns: 12, ttsEnabled: true },
 };
 
 export const db: DbState = {
@@ -80,6 +107,7 @@ export const db: DbState = {
   events: {},
   evaluations: {},
   feedback: [],
+  dialogues: {},
 };
 
 /**
@@ -90,11 +118,68 @@ export const db: DbState = {
 function bootstrapRunningLessons(): void {
   for (const lesson of db.lessons) {
     if (lesson.status === 'running') issueAttempts(lesson);
+    // Завершённое занятие: сданные попытки восстанавливаются с оценкой,
+    // остальные закрыты — контракт finishLesson: незавершённые → expired.
+    if (lesson.status === 'finished') {
+      for (const attempt of issueAttempts(lesson)) {
+        if (attempt.status === 'issued' || attempt.status === 'in_progress') attempt.status = 'expired';
+      }
+    }
   }
 }
 
 export function makeLessonSettings(): Lesson['settings'] {
-  return { ...DEFAULT_SETTINGS, weights: { ...DEFAULT_SETTINGS.weights } };
+  return {
+    ...DEFAULT_SETTINGS,
+    weights: { ...DEFAULT_SETTINGS.weights },
+    voice: { ...DEFAULT_SETTINGS.voice },
+  };
+}
+
+/** Доля слоя «Разговор», когда занятие голосовое, а веса не заданы явно. */
+const DEFAULT_DIALOGUE_WEIGHT = 0.25;
+
+/**
+ * Веса для голосового занятия, если преподаватель их не задал.
+ *
+ * Значения по умолчанию рассчитаны на занятие без разговора (`dialogue: 0`),
+ * и оставить их — значит не засчитать разговор вовсе. Остальные слои
+ * пропорционально ужимаются, их соотношение сохраняется.
+ */
+export function withDialogueWeight(weights: Lesson['settings']['weights']): Lesson['settings']['weights'] {
+  if (weights.dialogue > 0) return weights;
+  const rest = 1 - DEFAULT_DIALOGUE_WEIGHT;
+  const sum = weights.fields + weights.semantic + weights.grammar + weights.timing;
+  if (sum <= 0) return { ...weights, dialogue: DEFAULT_DIALOGUE_WEIGHT };
+  return {
+    fields: (weights.fields / sum) * rest,
+    semantic: (weights.semantic / sum) * rest,
+    grammar: (weights.grammar / sum) * rest,
+    timing: (weights.timing / sum) * rest,
+    dialogue: DEFAULT_DIALOGUE_WEIGHT,
+  };
+}
+
+/**
+ * Перенормировка весов под голосовой режим.
+ *
+ * Выключенный разговор не должен «съедать» свою долю: его вес уходит в ноль,
+ * а остальные слои делят единицу между собой.
+ */
+export function normalizeWeights(
+  weights: Lesson['settings']['weights'],
+  voiceEnabled: boolean,
+): Lesson['settings']['weights'] {
+  const next = { ...weights, dialogue: voiceEnabled ? weights.dialogue : 0 };
+  const sum = next.fields + next.semantic + next.grammar + next.timing + next.dialogue;
+  if (sum <= 0) return next;
+  return {
+    fields: next.fields / sum,
+    semantic: next.semantic / sum,
+    grammar: next.grammar / sum,
+    timing: next.timing / sum,
+    dialogue: next.dialogue / sum,
+  };
 }
 
 let incidentCounter = 36814851;
@@ -130,8 +215,14 @@ export function issueAttempts(lesson: Lesson): Attempt[] {
     }
 
     const scenarioId = lesson.scenarioIds[index % lesson.scenarioIds.length];
+    /*
+     * Идентификатор детерминирован: после перезагрузки страницы mock-БД
+     * собирается заново, и со случайным идентификатором адрес рабочего места
+     * становился бы недействительным, а восстанавливать разговор было бы не к
+     * чему. Пара «занятие + обучающийся» уникальна по построению.
+     */
     const attempt: Attempt = {
-      id: uid('at'),
+      id: `at-${lesson.id}-${participant.userId}`,
       lessonId: lesson.id,
       lessonTitle: lesson.title,
       userId: participant.userId,
@@ -145,6 +236,7 @@ export function issueAttempts(lesson: Lesson): Attempt[] {
       replayCount: 0,
       incidentNo: nextIncidentNo(),
       serverNow: new Date().toISOString(),
+      voice: { ...lesson.settings.voice },
     };
 
     db.attempts.push(attempt);
@@ -153,6 +245,7 @@ export function issueAttempts(lesson: Lesson): Attempt[] {
       { clientSeq: 0, type: 'issued', at: attempt.issuedAt, payload: { scenarioId } },
     ];
     participant.attemptId = attempt.id;
+    restoreAttemptRuntime(attempt);
     created.push(attempt);
   });
 
@@ -421,6 +514,18 @@ function buildRecommendations(ev: Evaluation, scenario: Scenario): Recommendatio
     });
   }
 
+  const missedQuestions = ev.dialogue?.missingQuestions ?? [];
+  if (missedQuestions.length > 0) {
+    out.push({
+      id: uid('rec'),
+      kind: 'dialogue_pattern',
+      body:
+        'В разговоре с заявителем не заданы обязательные вопросы протокола. ' +
+        'Задавайте их до того, как заявитель положит трубку:',
+      items: missedQuestions,
+    });
+  }
+
   const remarks = ev.grammar?.remarks ?? [];
   if (remarks.length > 2) {
     out.push({
@@ -453,6 +558,8 @@ export function evaluatePartial(attempt: Attempt, card: IncidentCardDraft, scena
       ? new Date(attempt.firstInputAt).getTime() - new Date(attempt.callAcceptedAt).getTime()
       : 0;
 
+  const voiceOn = lesson.settings.voice.enabled;
+
   const ev: Evaluation = {
     attemptId: attempt.id,
     status: 'partial',
@@ -461,6 +568,14 @@ export function evaluatePartial(attempt: Attempt, card: IncidentCardDraft, scena
     totalScore: 0,
     verdict: 'pending',
     fieldErrors,
+    weights: normalizeWeights(lesson.settings.weights, voiceOn),
+    layers: {
+      fields: 'done',
+      timing: 'done',
+      grammar: 'queued',
+      semantic: 'queued',
+      dialogue: voiceOn ? 'queued' : 'skipped',
+    },
     timing: {
       spentMs,
       limitSec,
@@ -483,15 +598,26 @@ export function evaluatePartial(attempt: Attempt, card: IncidentCardDraft, scena
 export function evaluateComplete(ev: Evaluation, card: IncidentCardDraft, scenario: Scenario, lesson: Lesson): Evaluation {
   const grammar = computeGrammar(card);
   const semantic = computeSemantic(card, scenario);
+  const voiceOn = lesson.settings.voice.enabled;
+  const dialogue = voiceOn ? computeDialogue(ev.attemptId, scenario) : undefined;
 
   const next: Evaluation = {
     ...ev,
     status: 'done',
     grammar,
     semantic,
+    dialogue,
     grammarScore: grammar?.score,
     semanticScore: semantic?.score,
-    needsReview: (semantic?.confidence ?? 1) < 0.7,
+    dialogueScore: dialogue?.score,
+    layers: {
+      ...ev.layers,
+      grammar: grammar ? 'done' : 'skipped',
+      semantic: semantic ? 'done' : 'skipped',
+      dialogue: voiceOn ? (dialogue ? 'done' : 'skipped') : 'skipped',
+    },
+    needsReview:
+      (semantic?.confidence ?? 1) < 0.7 || (dialogue?.confidence ?? 1) < 0.7,
   };
 
   next.totalScore = weighted(next, lesson);
@@ -503,12 +629,13 @@ export function evaluateComplete(ev: Evaluation, card: IncidentCardDraft, scenar
 
 /** Итог по весам занятия. Считает только go-core — ai-service весов не видит. */
 function weighted(ev: Evaluation, lesson: Lesson): number {
-  const w = lesson.settings.weights;
+  const w = ev.weights ?? normalizeWeights(lesson.settings.weights, lesson.settings.voice.enabled);
   const parts: Array<[number | undefined, number]> = [
     [ev.fieldsScore, w.fields],
     [ev.semanticScore, w.semantic],
     [ev.grammarScore, w.grammar],
     [ev.timingScore, w.timing],
+    [ev.dialogueScore, w.dialogue],
   ];
 
   let sum = 0;
@@ -519,6 +646,409 @@ function weighted(ev: Evaluation, lesson: Lesson): number {
     usedWeight += weight;
   }
   return usedWeight === 0 ? 0 : Math.round(sum / usedWeight);
+}
+
+
+// ──────────────────────────────── разговор: состояние, персист, оценка
+
+/** Пустое состояние разговора: до первого хода ходов нет. */
+export function emptyDialogue(): DialogueRecord {
+  return { turns: [], callEnded: false, nextTurnNo: 1, revealedFactIds: [] };
+}
+
+export function dialogueRecord(attemptId: string): DialogueRecord {
+  db.dialogues[attemptId] ??= emptyDialogue();
+  return db.dialogues[attemptId];
+}
+
+/**
+ * Состояние активной попытки переживает перезагрузку страницы.
+ *
+ * Остальная mock-БД собирается заново при каждой загрузке — так и задумано,
+ * это демонстрационные данные. Но попытка — это работа обучающегося: если
+ * после F5 исчезают принятый вызов, черновик и транскрипт разговора, проверить
+ * восстановление невозможно. Сохраняем ровно то, что на настоящем сервере
+ * лежало бы в `attempts`, `attempt_drafts` и `attempt_dialogue_turns`.
+ *
+ * Здесь — активная попытка. Сданные и закрытые хранятся отдельно вместе
+ * с оценкой (см. «завершённые попытки» ниже).
+ */
+const ATTEMPT_KEY = 'arm112.mock.attemptRuntime';
+
+interface PersistedAttempt {
+  status: Attempt['status'];
+  callAcceptedAt?: string;
+  firstInputAt?: string;
+  replayCount: number;
+  draft?: IncidentCardDraft;
+  dialogue?: DialogueRecord;
+  /** журнал действий: без него после F5 хронология преподавателя теряла начало попытки */
+  events?: AttemptEventInput[];
+}
+
+function readPersisted(): Record<string, PersistedAttempt> {
+  try {
+    const raw = sessionStorage.getItem(ATTEMPT_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, PersistedAttempt>) : {};
+  } catch {
+    // приватный режим или запрет хранилища — работаем только с памятью
+    return {};
+  }
+}
+
+function writePersisted(value: Record<string, PersistedAttempt>): void {
+  try {
+    sessionStorage.setItem(ATTEMPT_KEY, JSON.stringify(value));
+  } catch {
+    // хранилище недоступно: состояние живёт до перезагрузки
+  }
+}
+
+/** Сохраняет активную попытку; завершённую — удаляет из хранилища. */
+export function persistAttemptRuntime(attempt: Attempt): void {
+  const all = readPersisted();
+
+  if (attempt.status !== 'issued' && attempt.status !== 'in_progress') {
+    delete all[attempt.id];
+    writePersisted(all);
+    return;
+  }
+
+  all[attempt.id] = {
+    status: attempt.status,
+    callAcceptedAt: attempt.callAcceptedAt,
+    firstInputAt: attempt.firstInputAt,
+    replayCount: attempt.replayCount,
+    draft: db.drafts[attempt.id],
+    dialogue: db.dialogues[attempt.id],
+    events: db.events[attempt.id],
+  };
+  writePersisted(all);
+}
+
+export function clearAttemptRuntime(attemptId: string): void {
+  const all = readPersisted();
+  delete all[attemptId];
+  writePersisted(all);
+}
+
+/** Возвращает попытке состояние, сохранённое до перезагрузки страницы. */
+/**
+ * Занятия, созданные во время работы, тоже переживают перезагрузку.
+ *
+ * Фикстурные занятия собираются заново при каждой загрузке, а созданное
+ * преподавателем существовало бы только до F5 — вместе с ним пропадала бы
+ * и попытка обучающегося, хотя её состояние сохранено. Храним рядом с
+ * попытками и по той же причине: без этого проверить восстановление нельзя.
+ */
+const LESSONS_KEY = 'arm112.mock.lessons';
+
+function readCreatedLessons(): Lesson[] {
+  try {
+    const raw = sessionStorage.getItem(LESSONS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as Lesson[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Запоминает занятие целиком: создание, запуск и завершение. */
+export function persistLesson(lesson: Lesson): void {
+  const all = readCreatedLessons().filter((l) => l.id !== lesson.id);
+  all.push(JSON.parse(JSON.stringify(lesson)) as Lesson);
+  try {
+    sessionStorage.setItem(LESSONS_KEY, JSON.stringify(all));
+  } catch {
+    // хранилище недоступно: занятие живёт до перезагрузки
+  }
+}
+
+/**
+ * Сценарии, созданные или отредактированные преподавателем.
+ *
+ * Фикстурные сценарии собираются заново при каждой загрузке. Работа
+ * преподавателя — нет: без сохранения созданный сценарий исчезал бы при F5
+ * вместе с эталоном и чек-листом. Хранится тем же способом, что занятия
+ * и активная попытка.
+ */
+const SCENARIOS_KEY = 'arm112.mock.scenarios';
+
+function readSavedScenarios(): Scenario[] {
+  try {
+    const raw = sessionStorage.getItem(SCENARIOS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as Scenario[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Запоминает сценарий целиком: и новый, и правку существующего. */
+export function persistScenario(scenario: Scenario): void {
+  const all = readSavedScenarios().filter((x) => x.id !== scenario.id);
+  all.push(JSON.parse(JSON.stringify(scenario)) as Scenario);
+  try {
+    sessionStorage.setItem(SCENARIOS_KEY, JSON.stringify(all));
+  } catch {
+    // хранилище недоступно: сценарий живёт до перезагрузки
+  }
+}
+
+function restoreSavedScenarios(): void {
+  for (const saved of readSavedScenarios()) {
+    const index = db.scenarios.findIndex((x) => x.id === saved.id);
+    if (index >= 0) db.scenarios[index] = saved;
+    else db.scenarios.unshift(saved);
+  }
+}
+
+/*
+ * Сохранённое состояние важнее фикстуры: запущенное или завершённое
+ * демо-занятие иначе после F5 возвращалось бы в исходный статус, и одно
+ * и то же занятие выглядело бы на разных экранах по-разному.
+ */
+function restoreCreatedLessons(): void {
+  for (const lesson of readCreatedLessons()) {
+    const index = db.lessons.findIndex((l) => l.id === lesson.id);
+    if (index >= 0) db.lessons[index] = lesson;
+    else db.lessons.push(lesson);
+  }
+}
+
+function restoreAttemptRuntime(attempt: Attempt): void {
+  if (restoreCompletedAttempt(attempt)) return;
+  const saved = readPersisted()[attempt.id];
+  if (!saved) return;
+
+  attempt.status = saved.status;
+  attempt.callAcceptedAt = saved.callAcceptedAt;
+  attempt.firstInputAt = saved.firstInputAt;
+  attempt.replayCount = saved.replayCount;
+  if (saved.draft) db.drafts[attempt.id] = saved.draft;
+  if (saved.events) db.events[attempt.id] = saved.events;
+  if (saved.dialogue) restoreDialogue(attempt, saved.dialogue);
+}
+
+function restoreDialogue(attempt: Attempt, record: DialogueRecord): void {
+  // Записи голоса жили в памяти прошлой вкладки: их ссылки после F5 мертвы.
+  for (const turn of record.turns) {
+    if (turn.audio?.audioUrl.startsWith('blob:')) delete turn.audio;
+  }
+  db.dialogues[attempt.id] = record;
+  attempt.dialogue = {
+    turnsCount: record.turns.length,
+    callEnded: record.callEnded,
+    callEndedAt: record.callEndedAt,
+  };
+}
+
+// ───────────────────────────────────────── завершённые попытки и комментарии
+
+/**
+ * Сданная или закрытая попытка с оценкой. На сервере это строки `attempts`,
+ * `evaluations`, `attempt_events`; здесь — запись в sessionStorage, чтобы
+ * результат и отчёт не пропадали после F5 так же, как не пропадают в БД.
+ */
+interface CompletedAttempt {
+  attempt: Pick<Attempt, 'status' | 'callAcceptedAt' | 'firstInputAt' | 'submittedAt' | 'timeSpentMs' | 'replayCount' | 'card'>;
+  evaluation?: Evaluation;
+  events?: AttemptEventInput[];
+  dialogue?: DialogueRecord;
+}
+
+const COMPLETED_KEY = 'arm112.mock.completedAttempts';
+const FEEDBACK_KEY = 'arm112.mock.feedback';
+
+function readCompleted(): Record<string, CompletedAttempt> {
+  try {
+    const raw = sessionStorage.getItem(COMPLETED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, CompletedAttempt>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function persistCompletedAttempt(attempt: Attempt): void {
+  const all = readCompleted();
+  all[attempt.id] = {
+    attempt: {
+      status: attempt.status,
+      callAcceptedAt: attempt.callAcceptedAt,
+      firstInputAt: attempt.firstInputAt,
+      submittedAt: attempt.submittedAt,
+      timeSpentMs: attempt.timeSpentMs,
+      replayCount: attempt.replayCount,
+      card: attempt.card,
+    },
+    evaluation: db.evaluations[attempt.id],
+    events: db.events[attempt.id],
+    dialogue: db.dialogues[attempt.id],
+  };
+  try {
+    sessionStorage.setItem(COMPLETED_KEY, JSON.stringify(all));
+  } catch {
+    // хранилище недоступно: результат живёт до перезагрузки
+  }
+}
+
+function restoreCompletedAttempt(attempt: Attempt): boolean {
+  const saved = readCompleted()[attempt.id];
+  if (!saved) return false;
+  Object.assign(attempt, saved.attempt);
+  if (saved.attempt.card) db.drafts[attempt.id] = saved.attempt.card;
+  if (saved.events) db.events[attempt.id] = saved.events;
+  if (saved.dialogue) restoreDialogue(attempt, saved.dialogue);
+  if (saved.evaluation) db.evaluations[attempt.id] = saved.evaluation;
+
+  // Перезагрузка пришлась на расчёт AI-слоёв: досчитываем, а не зависаем в «проверяется».
+  const ev = db.evaluations[attempt.id];
+  const scenario = scenarioById(attempt.scenarioId);
+  const lesson = lessonById(attempt.lessonId);
+  if (attempt.status === 'evaluating' && ev && scenario && lesson && attempt.card) {
+    db.evaluations[attempt.id] = evaluateComplete(ev, attempt.card, scenario, lesson);
+    attempt.status = 'evaluated';
+    persistCompletedAttempt(attempt);
+  }
+  return true;
+}
+
+export function persistFeedback(): void {
+  try {
+    sessionStorage.setItem(FEEDBACK_KEY, JSON.stringify(db.feedback));
+  } catch {
+    // хранилище недоступно: комментарий живёт до перезагрузки
+  }
+}
+
+function restoreFeedback(): void {
+  try {
+    const raw = sessionStorage.getItem(FEEDBACK_KEY);
+    if (raw) db.feedback = JSON.parse(raw) as TeacherFeedback[];
+  } catch {
+    // повреждённая запись — начинаем с пустого списка
+  }
+}
+
+/**
+ * FIXTURE: оценка разговора.
+ *
+ * В проде этот слой считает ai-service: чек-лист протокола и тон — языковой
+ * моделью, речевые метрики — детерминированно. Здесь детерминированно всё:
+ * пункт считается выполненным, если в репликах оператора встретилась одна из
+ * подсказок пункта. Этого хватает, чтобы собрать и проверить интерфейс.
+ */
+/** Значимые слова пункта чек-листа: служебные и короткие отбрасываем. */
+function meaningfulWords(text: string): string[] {
+  const stop = ['уточнить', 'спросить', 'сообщить', 'выяснить', 'задать', 'нужно', 'чтобы', 'какие', 'какой'];
+  return text
+    .toLowerCase()
+    .split(/[^а-яё]+/i)
+    .filter((w) => w.length >= 5 && !stop.includes(w));
+}
+
+function computeDialogue(attemptId: string, scenario: Scenario): DialogueResult | undefined {
+  const record = db.dialogues[attemptId];
+  const expected = scenario.expectedDialogue;
+  if (!record || !expected) return undefined;
+
+  const operator = record.turns.filter((t) => t.speaker === 'operator');
+  const checklist = expected.checklist.map((item) => {
+    /*
+     * Ключевые слова задаёт преподаватель. Если он их не указал, ищем по
+     * значимым словам самого пункта: иначе чек-лист, составленный вручную,
+     * нельзя было бы выполнить ни одной репликой. В проде соответствие
+     * определяет языковая модель, здесь — прямое совпадение.
+     */
+    const hints = item.hints?.length ? item.hints : meaningfulWords(item.text);
+    const evidence = operator.find((turn) =>
+      hints.some((hint) => turn.text.toLowerCase().includes(hint.toLowerCase())),
+    );
+    return {
+      id: item.id,
+      text: item.text,
+      kind: item.kind,
+      required: item.required,
+      status: evidence ? ('done' as const) : ('missed' as const),
+      evidenceTurnNo: evidence?.turnNo,
+    };
+  });
+
+  const totalWeight = expected.checklist.reduce((acc, item) => acc + (item.weight ?? 1), 0) || 1;
+  const doneWeight = expected.checklist.reduce(
+    (acc, item) =>
+      acc + (checklist.find((c) => c.id === item.id)?.status === 'done' ? item.weight ?? 1 : 0),
+    0,
+  );
+  const score = Math.round((doneWeight / totalWeight) * 100);
+
+  const words = operator.reduce((acc, t) => acc + t.text.trim().split(/\s+/).filter(Boolean).length, 0);
+  const spanMs = operator.length > 0 ? Math.max(1, operator[operator.length - 1].atMs) : 0;
+  const wordsPerMin = spanMs > 0 ? Math.round((words / (spanMs / 60000)) * 10) / 10 : 0;
+
+  const fillers: Record<string, number> = {};
+  for (const turn of operator) {
+    const text = ` ${turn.text.toLowerCase()} `;
+    for (const filler of FILLER_WORDS) {
+      const count = text.split(` ${filler} `).length - 1;
+      if (count > 0) fillers[filler] = (fillers[filler] ?? 0) + count;
+    }
+  }
+  const fillerCount = Object.values(fillers).reduce((a, b) => a + b, 0);
+
+  // Пауза перед ответом оператора: от реплики заявителя до следующей его реплики.
+  const gaps: number[] = [];
+  record.turns.forEach((turn, i) => {
+    if (turn.speaker !== 'operator' || i === 0) return;
+    const prev = record.turns[i - 1];
+    if (prev.speaker === 'caller') gaps.push(Math.max(0, turn.atMs - prev.atMs));
+  });
+  const avgResponseMs = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0;
+
+  const forbiddenHits = (expected.forbidden ?? []).flatMap((phrase) => {
+    const hit = operator.find((t) => t.text.toLowerCase().includes(phrase.toLowerCase()));
+    return hit ? [{ phrase, turnNo: hit.turnNo }] : [];
+  });
+
+  const missingQuestions = checklist
+    .filter((item) => item.status === 'missed' && item.required)
+    .map((item) => item.text);
+
+  const polite = operator.some((t) => /пожалуйста|спасибо|будьте добры/i.test(t.text));
+  const shouting = operator.some((t) => t.text === t.text.toUpperCase() && t.text.length > 10);
+
+  return {
+    score,
+    // Короткий разговор — недостаточно материала: помечаем как требующий ревью.
+    confidence: operator.length >= 3 ? 0.82 : 0.55,
+    checklist,
+    missingQuestions,
+    forbiddenHits,
+    speech: {
+      operatorTurns: operator.length,
+      operatorWords: words,
+      wordsPerMin,
+      fillerCount,
+      fillers,
+      avgResponseMs,
+      maxResponseMs: gaps.length ? Math.max(...gaps) : 0,
+      lowConfidenceTurns: operator.filter((t) => (t.confidence ?? 1) < 0.6).length,
+    },
+    tone: {
+      politeness: polite ? 90 : 65,
+      calmness: shouting ? 55 : 85,
+      clarity: fillerCount > 3 ? 60 : 85,
+      comment: polite
+        ? 'Обращение вежливое, формулировки понятные.'
+        : 'Не хватает вежливых формулировок при обращении к заявителю.',
+    },
+    summaryForStudent:
+      missingQuestions.length === 0
+        ? 'Протокол опроса выполнен: все обязательные вопросы заданы.'
+        : `Не задано обязательных вопросов: ${missingQuestions.length}.`,
+  };
 }
 
 /**
@@ -572,4 +1102,7 @@ function applyBlockedUsers(): void {
 }
 
 applyBlockedUsers();
+restoreSavedScenarios();
+restoreCreatedLessons();
+restoreFeedback();
 bootstrapRunningLessons();

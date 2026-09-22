@@ -1,10 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
-import { Card, DifficultyBadge, ErrorState, Field, Loading, Modal, ScenarioStatusBadge } from '../../components/ui';
+import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, Modal, ScenarioStatusBadge } from '../../components/ui';
+import { groupByVersions, scenarioInUse, scenarioLessonsCount, versionNo } from '../../features/scenario/versioning';
 import { formatDate } from '../../shared/utils/time';
-import type { Difficulty } from '../../shared/types';
+import type { AiJob, Difficulty } from '../../shared/types';
+
+/** Интервал опроса фоновой задачи генерации. */
+const JOB_POLL_MS = 1500;
+
+function jobText(job: AiJob | null): string {
+  if (!job) return 'Задача отправлена в очередь…';
+  switch (job.status) {
+    case 'queued':
+      return job.queuePosition ? `В очереди, позиция ${job.queuePosition}` : 'В очереди';
+    case 'running':
+      return job.estWaitSec ? `Нейросеть формирует сценарий, осталось около ${job.estWaitSec} с` : 'Нейросеть формирует сценарий…';
+    case 'done':
+      return 'Сценарий сформирован';
+    case 'cancelled':
+      return 'Генерация отменена';
+    default:
+      return job.error ?? 'Генерация не удалась';
+  }
+}
 
 /** Источник сценария. Значения перечисления не показываем напрямую. */
 const SOURCE_LABEL: Record<string, string> = {
@@ -24,11 +44,14 @@ export function ScenarioListPage() {
   if (scenarios.loading) return <Loading />;
   if (scenarios.error) return <ErrorState text={scenarios.error} onRetry={scenarios.reload} />;
 
-  const list = (scenarios.data ?? []).filter(
+  const all = scenarios.data ?? [];
+  const list = all.filter(
     (s) =>
       (statusFilter === 'all' || s.status === statusFilter) &&
       (categoryFilter === 'all' || s.categoryId === categoryFilter),
   );
+  // Версии одного сценария идут подряд, чтобы v1 и v2 не выглядели разными сценариями.
+  const rows = groupByVersions(list, all);
 
   return (
     <>
@@ -73,19 +96,24 @@ export function ScenarioListPage() {
             <thead>
               <tr>
                 <th>Название</th><th>Категория</th><th>Сложность</th>
-                <th>Источник</th><th>Статус</th><th>Создан</th>
+                <th>Источник</th><th>Статус</th><th>В занятиях</th><th>Создан</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((s) => (
+              {rows.map(({ scenario: s, grouped }) => (
                 <tr key={s.id}>
-                  <td><Link to={`/teacher/scenarios/${s.id}`}>{s.title}</Link></td>
+                  <td>
+                    {grouped && versionNo(s) > 1 && <span className="dim" aria-hidden="true">↳ </span>}
+                    <Link to={`/teacher/scenarios/${s.id}`}>{s.title}</Link>
+                    {grouped && <> <Badge tone="accent">версия {versionNo(s)}</Badge></>}
+                  </td>
                   <td className="muted">{s.categoryName}</td>
                   <td><DifficultyBadge level={s.difficulty} /></td>
                   <td className="muted small">
                     {SOURCE_LABEL[s.source] ?? 'Не указан'}
                   </td>
                   <td><ScenarioStatusBadge status={s.status} /></td>
+                  <td className="mono">{scenarioInUse(s) ? scenarioLessonsCount(s) : '—'}</td>
                   <td className="muted small nowrap">{formatDate(s.createdAt)}</td>
                 </tr>
               ))}
@@ -110,10 +138,58 @@ function CreateScenarioModal({ onClose, onDone }: { onClose: () => void; onDone:
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Запущенная генерация: задача ai_jobs и уже созданный черновик сценария. */
+  const [started, setStarted] = useState<{ jobId: string; scenarioId: string } | null>(null);
+  const [job, setJob] = useState<AiJob | null>(null);
   const navigate = useNavigate();
 
   const categories = (types.data ?? []).filter((t) => t.depth <= 2);
   const selectedCategory = categoryId || categories[0]?.id || '';
+
+  // Колбэки родителя меняют идентичность при каждой его перерисовке —
+  // опрос от этого перезапускаться не должен.
+  const handlers = useRef({ onClose, onDone, navigate });
+  useEffect(() => {
+    handlers.current = { onClose, onDone, navigate };
+  });
+
+  // Опрос фоновой задачи генерации до done / failed / cancelled.
+  useEffect(() => {
+    if (!started) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = () => {
+      api.aiJobs
+        .get(started.jobId)
+        .then((next) => {
+          if (cancelled) return;
+          setJob(next);
+          if (next.status === 'done') {
+            const h = handlers.current;
+            h.onDone();
+            h.onClose();
+            h.navigate(`/teacher/scenarios/${started.scenarioId}`);
+            return;
+          }
+          if (next.status === 'failed' || next.status === 'cancelled') {
+            setError(jobText(next));
+            setBusy(false);
+            return;
+          }
+          timer = setTimeout(poll, JOB_POLL_MS);
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : 'Не удалось получить состояние генерации');
+          setBusy(false);
+        });
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [started]);
 
   async function submit() {
     if (!selectedCategory) {
@@ -122,11 +198,22 @@ function CreateScenarioModal({ onClose, onDone }: { onClose: () => void; onDone:
     }
     setBusy(true);
     setError(null);
+    setJob(null);
     try {
-      const scenario =
-        mode === 'generate'
-          ? await api.scenarios.generate({ categoryId: selectedCategory, difficulty, mode: 'cards', teacherComment: comment || undefined })
-          : await api.scenarios.create({ title: title || 'Новый сценарий', categoryId: selectedCategory, difficulty, mode: 'cards' });
+      if (mode === 'generate') {
+        const accepted = await api.scenarios.generate({
+          categoryId: selectedCategory,
+          difficulty,
+          mode: 'cards',
+          teacherComment: comment || undefined,
+          withDialogue: true,
+        });
+        // Черновик уже есть в списке — обновляем его сразу, не дожидаясь результата.
+        onDone();
+        setStarted({ jobId: accepted.jobId, scenarioId: accepted.scenarioId });
+        return;
+      }
+      const scenario = await api.scenarios.create({ title: title || 'Новый сценарий', categoryId: selectedCategory, difficulty, mode: 'cards' });
       onDone();
       onClose();
       navigate(`/teacher/scenarios/${scenario.id}`);
@@ -136,15 +223,23 @@ function CreateScenarioModal({ onClose, onDone }: { onClose: () => void; onDone:
     }
   }
 
+  const generating = Boolean(started) && busy;
+
   return (
     <Modal
       title="Новый сценарий"
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>Отмена</button>
+          <button type="button" className="btn" onClick={onClose} disabled={busy && !generating}>
+            {generating ? 'Закрыть' : 'Отмена'}
+          </button>
           <button type="button" className="btn btn--primary" onClick={() => void submit()} disabled={busy}>
-            {busy ? (mode === 'generate' ? 'Генерация…' : 'Создание…') : mode === 'generate' ? 'Сгенерировать' : 'Создать'}
+            {busy
+              ? (mode === 'generate' ? 'Генерация…' : 'Создание…')
+              : mode === 'generate'
+                ? (started ? 'Повторить генерацию' : 'Сгенерировать')
+                : 'Создать'}
           </button>
         </>
       }
@@ -195,9 +290,19 @@ function CreateScenarioModal({ onClose, onDone }: { onClose: () => void; onDone:
           </Field>
         )}
 
-        {error && <div className="field__error">{error}</div>}
+        {error && <div className="field__error" role="alert">{error}</div>}
 
-        {mode === 'generate' && (
+        {generating && (
+          <div className="card" style={{ padding: '10px 12px' }} role="status" aria-live="polite">
+            <b>{jobText(job)}</b>
+            <p className="field__hint" style={{ margin: '4px 0 0' }}>
+              Черновик сценария уже создан. Окно можно закрыть — генерация продолжится,
+              сценарий появится в списке со статусом «Сгенерирован ИИ».
+            </p>
+          </div>
+        )}
+
+        {mode === 'generate' && !generating && (
           <p className="field__hint">
             Генерация выполняется в фоновой очереди и занимает время. Результат приходит
             со статусом «Сгенерирован ИИ» и требует подтверждения преподавателем.

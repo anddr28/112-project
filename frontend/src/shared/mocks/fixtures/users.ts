@@ -49,8 +49,15 @@ export const USERS: User[] = [
   },
 ];
 
+/*
+ * Учебные учётные записи для демонстрационного стенда.
+ *
+ * Обучающихся двое, и войти нужно уметь под каждым: занятия назначаются
+ * поимённо, и проверить разграничение доступа одним аккаунтом невозможно.
+ */
 export const DEMO_ACCOUNTS: Array<{ login: string; password: string; role: User['role']; label: string }> = [
-  { login: 'teacher', password: 'teacher', role: 'teacher', label: 'Преподаватель' },
-  { login: 'student', password: 'student', role: 'student', label: 'Обучающийся' },
-  { login: 'admin', password: 'admin', role: 'admin', label: 'Администратор' },
+  { login: 'teacher', password: 'teacher', role: 'teacher', label: 'Преподаватель · Ковалёва И. С.' },
+  { login: 'student', password: 'student', role: 'student', label: 'Обучающийся · Рожкова О. И.' },
+  { login: 'student2', password: 'student2', role: 'student', label: 'Обучающийся · Никитин П. А.' },
+  { login: 'admin', password: 'admin', role: 'admin', label: 'Администратор · Глущенко О. И.' },
 ];

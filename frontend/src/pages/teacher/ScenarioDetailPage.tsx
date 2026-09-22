@@ -1,26 +1,56 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { api } from '../../shared/api';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { api, hasErrorCode } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, ScenarioStatusBadge } from '../../components/ui';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
+import { ScenarioEditor } from '../../features/scenario/ScenarioEditor';
 import { formatDateTime } from '../../shared/utils/time';
 import { labelForPath } from '../../shared/utils/labels';
+import {
+  canEditScenario,
+  inUseText,
+  needsNewVersion,
+  scenarioInUse,
+  scenarioLessonsCount,
+  scenarioSaveError,
+  versionNo,
+  versionsOf,
+} from '../../features/scenario/versioning';
 
 export function ScenarioDetailPage() {
   const { scenarioId = '' } = useParams();
+  // Переход на другую версию — новое состояние страницы (режим правки, ошибки).
+  return <ScenarioDetail key={scenarioId} scenarioId={scenarioId} />;
+}
+
+function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
   const scenario = useAsync(() => api.scenarios.get(scenarioId), [scenarioId]);
+  const all = useAsync(() => api.scenarios.list(), [scenarioId]);
   const labels = useAsync(() => api.classifier.labels(), []);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
+  // ?edit=1 — открыть редактор сразу (новая версия после создания).
+  const [editing, setEditing] = useState(searchParams.get('edit') === '1');
 
   if (scenario.loading) return <Loading />;
   if (scenario.error) return <ErrorState text={scenario.error} onRetry={scenario.reload} />;
   if (!scenario.data) return <ErrorState text="Сценарий не найден" />;
 
   const s = scenario.data;
-  const editable = s.status === 'draft' || s.status === 'generated';
+  const editable = canEditScenario(s);
+  const approvable = s.status === 'draft' || s.status === 'generated';
+  const inUse = scenarioInUse(s);
+  const versions = all.data ? versionsOf(s, all.data) : [];
+  const parent = s.parentScenarioId ? all.data?.find((x) => x.id === s.parentScenarioId) : undefined;
+
+  function stopEditing() {
+    setEditing(false);
+    if (searchParams.has('edit')) setSearchParams({}, { replace: true });
+  }
 
   /** Операции сервера: отказ показываем, иначе кнопка осталась бы заблокированной. */
   async function run(action: () => Promise<unknown>, failure: string, after?: () => void) {
@@ -31,14 +61,31 @@ export function ScenarioDetailPage() {
       after?.();
       scenario.reload();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : failure);
+      setActionError(scenarioSaveError(e, s, failure));
+      // Сценарий мог попасть в занятие, пока его открывали: перечитываем.
+      if (hasErrorCode(e, 'conflict')) scenario.reload();
     } finally {
       setBusy(false);
     }
   }
 
+  async function createVersion() {
+    setBusy(true);
+    setActionError(null);
+    try {
+      const next = await api.scenarios.createVersion(scenarioId);
+      navigate(`/teacher/scenarios/${next.id}?edit=1`);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Не удалось создать новую версию');
+      setBusy(false);
+    }
+  }
+
   async function saveTitle() {
-    if (title === null) return;
+    if (title === null || title === s.title) {
+      setTitle(null);
+      return;
+    }
     const next = title;
     await run(
       () => api.scenarios.update(scenarioId, { title: next }),
@@ -59,13 +106,34 @@ export function ScenarioDetailPage() {
             <ScenarioStatusBadge status={s.status} />
             <DifficultyBadge level={s.difficulty} />
             <Badge tone="neutral">{s.categoryName}</Badge>
+            {versions.length > 1 && <Badge tone="accent">Версия {versionNo(s)} из {versions.length}</Badge>}
+            {s.status === 'validated' && (
+              <Badge tone={inUse ? 'warn' : 'neutral'}>
+                {inUse ? `В занятиях: ${scenarioLessonsCount(s)}` : 'В занятиях не используется'}
+              </Badge>
+            )}
             <Badge tone="neutral">Эталон, версия {s.etalonVersion}</Badge>
             {s.source === 'generated' && <Badge tone="warn">Нейросеть</Badge>}
           </div>
         </div>
 
         <div className="page-head__actions">
-          {s.status === 'generated' && (
+          {editable && !editing && (
+            <button type="button" className="btn" onClick={() => setEditing(true)} disabled={busy}>
+              Редактировать сценарий
+            </button>
+          )}
+          {needsNewVersion(s) && (
+            <button type="button" className="btn" onClick={() => void createVersion()} disabled={busy}>
+              Создать новую версию
+            </button>
+          )}
+          {/*
+            * Подтверждать нужно и созданный вручную черновик: без этого
+            * сценарий не попадёт в занятие — туда берутся только
+            * подтверждённые.
+            */}
+          {approvable && !editing && (
             <button
               type="button"
               className="btn btn--primary"
@@ -75,13 +143,33 @@ export function ScenarioDetailPage() {
               Подтвердить сценарий
             </button>
           )}
-          {s.status === 'validated' && (
-            <Link className="btn" to="/teacher/lessons">Создать занятие</Link>
+          {s.status === 'validated' && !editing && (
+            <Link className="btn btn--primary" to={`/teacher/lessons?create=1&scenario=${s.id}`}>Создать занятие</Link>
           )}
         </div>
       </div>
 
       {actionError && <p className="field__error" role="alert" style={{ marginBottom: 12 }}>{actionError}</p>}
+
+      {needsNewVersion(s) && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card__body">
+            <b>{inUseText(scenarioLessonsCount(s))}.</b>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Новая версия — копия этого сценария в статусе черновика. Эта версия останется
+              без изменений, занятия продолжат использовать её.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {parent && (
+        <p className="small" style={{ marginBottom: 12 }}>
+          Новая версия сценария{' '}
+          <Link to={`/teacher/scenarios/${parent.id}`}>«{parent.title}», версия {versionNo(parent)}</Link>.
+          {s.status === 'draft' && ' После правки подтвердите её, чтобы включать в занятия.'}
+        </p>
+      )}
 
       {s.status === 'generated' && (
         <div className="card" style={{ marginBottom: 16, borderColor: 'var(--u-warn)' }}>
@@ -94,6 +182,23 @@ export function ScenarioDetailPage() {
         </div>
       )}
 
+      {editing && editable ? (
+        <ScenarioEditor
+          scenario={s}
+          onSaved={() => {
+            stopEditing();
+            scenario.reload();
+            all.reload();
+          }}
+          onConflict={(message) => {
+            // Редактор закроется после перечитывания — причина остаётся на странице.
+            setActionError(`Изменения не сохранены. ${message}.`);
+            stopEditing();
+            scenario.reload();
+          }}
+          onCancel={stopEditing}
+        />
+      ) : (
       <div className="grid grid--sidebar">
         <div className="stack">
           <Card title="Легенда звонка">
@@ -173,6 +278,24 @@ export function ScenarioDetailPage() {
             </div>
           </Card>
 
+          {versions.length > 1 && (
+            <Card title="Версии сценария">
+              <div className="stack" style={{ gap: 6 }}>
+                {versions.map((v) => (
+                  <div key={v.id} className="row row--tight">
+                    {v.id === s.id ? (
+                      <b className="small">Версия {versionNo(v)} (открыта)</b>
+                    ) : (
+                      <Link className="small" to={`/teacher/scenarios/${v.id}`}>Версия {versionNo(v)}</Link>
+                    )}
+                    <ScenarioStatusBadge status={v.status} />
+                    {scenarioInUse(v) && <span className="dim small">в занятиях: {scenarioLessonsCount(v)}</span>}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <Card title="Ключевые факты">
             <p className="field__hint" style={{ marginBottom: 8 }}>
               Источник обязательных фактов эталона. Обучающемуся не показывается.
@@ -195,6 +318,7 @@ export function ScenarioDetailPage() {
           </Card>
         </div>
       </div>
+      )}
     </>
   );
 }

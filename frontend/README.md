@@ -1,32 +1,75 @@
-# React + TypeScript + Vite
+# Frontend — тренажёр оператора АРМ-112
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite. Роли: преподаватель, обучающийся, администратор.
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # tsc -b && vite build
+npm run lint     # oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Учебные учётные записи (логин = пароль): `teacher`, `student`, `student2`, `admin`.
+
+## Режимы сервисного слоя
+
+UI обращается только к интерфейсу `Api` (`src/shared/api/types.ts`). Реализация
+выбирается в `src/shared/api/index.ts` переменной окружения (см. `.env.example`):
+
+| `VITE_USE_MOCKS` | Реализация | Назначение |
+|---|---|---|
+| не задан / `true` | `src/shared/mocks/mockApi.ts` | демонстрация без backend; состояние — в `sessionStorage` вкладки |
+| `false` | `src/shared/api/httpApi.ts` | go-core по `contracts/openapi/frontend.v1.yaml`, cookie-сессия, `X-Requested-With: fetch` |
+
+В dev-режиме `/api` и WebSocket проксируются на `VITE_API_PROXY` (`vite.config.ts`).
+
+Mock воспроизводит контракт, а не придумывает его: асинхронную генерацию сценария
+(`202 {jobId}` → опрос `/ai-jobs/{jobId}`), пакетный журнал событий с `clientSeq`,
+коды `409/422` там, где их задаёт контракт. Расчёт оценки в mock — FIXTURE, в проде
+его выполняют go-core и ai-service.
+
+## Голосовой режим
+
+- Запись реплики — `MediaRecorder`. Кнопка работает как переключатель:
+  «Начать запись» → «● Остановить запись»; её же можно удерживать (дольше 0,5 с) —
+  тогда запись кончается вместе с удержанием. Указатель захватывается
+  (`setPointerCapture`), поэтому уход курсора с кнопки запись не обрывает.
+  Пробел и Enter действуют, только когда кнопка в фокусе. Предел длительности —
+  30 с: по нему запись сохраняется сама, о чём панель сообщает.
+  Микрофон доступен только в защищённом контексте: `https://…` или `http://localhost`.
+- Нет доступа к микрофону — панель переходит на текстовый ввод, попытка не ломается.
+- Расшифровка реплики оператора берётся ТОЛЬКО из двух источников: распознавание
+  речи браузером (Web Speech API, `useSpeechRecognition.ts`) либо ручной ввод.
+  Заготовленные реплики сценария в поле расшифровки не подставляются никогда —
+  сценарные данные отвечают за реплики ЗАЯВИТЕЛЯ, а не за речь обучающегося.
+- Распознавание запрашивается на устройстве (`processLocally`), если браузер это
+  умеет: тогда звук наружу не уходит. Иначе работает движок браузера; в
+  изолированном контуре он недоступен, и панель честно предлагает ввести текст.
+- Не распознали (нет поддержки, нет разрешения, нет сети, ничего не расслышано) —
+  панель пишет «Автоматическая расшифровка недоступна» и ждёт ручного ввода.
+  Отправляется всегда тот текст, который видит обучающийся.
+- Аудиозапись при этом сохраняется и прикладывается к ходу: `POST /dialogue/turns`
+  принимает её как `multipart`, и в рабочем контуре речь распознаёт ai-service —
+  отдельного STT-endpoint контракт не предусматривает.
+- Голос заявителя: аудио ai-service (`/media/tts`); пока его нет — синтезатор
+  браузера на голосах ОС (работает офлайн, если в системе есть русский голос).
+
+## Версии сценария
+
+Правка запрещается не статусом, а использованием в занятиях (решение backend):
+черновик и подтверждённый, но ещё не выданный сценарий правятся на месте;
+подтверждённый и уже используемый — только через «Создать новую версию»
+(копия в статусе черновика со ссылкой на родителя, старая версия и занятия на
+ней не меняются). Логика экрана — `src/features/scenario/versioning.ts`.
+
+**Зависимость от backend:** в `frontend.v1.yaml` пока нет
+`POST /scenarios/{id}/versions` и полей `Scenario.inUse`, `lessonsCount`,
+`version`, `parentScenarioId`. Mock и `httpApi` уже работают с ними; имена
+полей нужно подтвердить при добавлении в контракт.
+
+## Ограничения mock (заблокировано backend)
+
+STT/TTS/LLM-заявитель и AI-слои оценки, WebSocket-мониторинг (сейчас опрос раз в 3 с),
+разные вкладки браузера не видят данные друг друга (каждая вкладка — своя mock-БД).
