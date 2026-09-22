@@ -1,3 +1,13 @@
 .DS_Store
 node_modules/
 docs/.$*.bkp
+
+# секреты и локальные окружения
+.env
+*.local.env
+# веса моделей — не в git (make models-pull)
+ai-service/models/
+ai-service/bench/data/stt/audio/
+ai-service/bench/data/noise/
+# данные volume'ов при локальном запуске
+data/

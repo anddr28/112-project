@@ -2,7 +2,7 @@
 # go-core — внутренний callback-API. Сервер: go-core. Клиент: ai-service.
 #
 # Правила:
-#   * ровно ОДНО поле результата (grammar|semantic|scenario|tts) при status=ok,
+#   * ровно ОДНО поле результата (grammar|semantic|dialogue|scenario|tts) при status=ok,
 #     соответствующее type; при status=failed — поле error
 #   * go-core идемпотентен: callback по задаче, которая уже done
 #     (дубль после переотправки) -> 200 и молча игнорируется
@@ -16,6 +16,9 @@
 #   evaluate_grammar   -> evaluations.grammar_score, grammar_remarks, engine
 #   evaluate_semantic  -> evaluations.semantic_score, semantic, engine;
 #                         confidence < порога -> флаг "требует ревью"
+#   evaluate_dialogue  -> evaluations.dialogue_score, dialogue, engine (v1.1, голос);
+#                         confidence < порога -> флаг "требует ревью";
+#                         вес слоя dialogue = 0, если в занятии голос выключен
 #   после каждого слоя -> пересчёт total_score по весам занятия;
 #                         все слои на месте -> status=done, verdict, XP
 #   generate_scenario  -> scenarios (status=generated) + etalons v1 -> на валидацию
@@ -28,7 +31,7 @@
 openapi: 3.0.3
 info:
   title: LCT go-core — internal callbacks
-  version: "1.0"
+  version: "1.1"
 servers:
   - url: http://go-core:8080
 security:
@@ -137,6 +140,8 @@ components:
           $ref: '_components.yaml#/components/schemas/GrammarResult'
         semantic:
           $ref: '_components.yaml#/components/schemas/SemanticResult'
+        dialogue:
+          $ref: '_components.yaml#/components/schemas/DialogueResult'
         scenario:
           $ref: '_components.yaml#/components/schemas/ScenarioResult'
         tts:
@@ -154,6 +159,7 @@ components:
             - model_unavailable    # модель не загружена / Ollama лежит     (retryable)
             - lt_unavailable       # LanguageTool недоступен                (retryable)
             - tts_failed           # Silero упал на тексте                  (retryable)
+            - stt_failed           # STT не декодировал/не распознал          (retryable для job; в sync — 503/415)
             - bad_payload          # payload не прошёл валидацию            (NOT retryable)
             - internal             # прочее                                 (retryable)
         message: {type: string}
