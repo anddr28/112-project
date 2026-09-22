@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
-import { Card, DifficultyBadge, ErrorState, Field, Loading, Modal, ScenarioStatusBadge } from '../../components/ui';
+import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, Modal, ScenarioStatusBadge } from '../../components/ui';
+import { groupByVersions, scenarioInUse, scenarioLessonsCount, versionNo } from '../../features/scenario/versioning';
 import { formatDate } from '../../shared/utils/time';
 import type { AiJob, Difficulty } from '../../shared/types';
 
@@ -43,11 +44,14 @@ export function ScenarioListPage() {
   if (scenarios.loading) return <Loading />;
   if (scenarios.error) return <ErrorState text={scenarios.error} onRetry={scenarios.reload} />;
 
-  const list = (scenarios.data ?? []).filter(
+  const all = scenarios.data ?? [];
+  const list = all.filter(
     (s) =>
       (statusFilter === 'all' || s.status === statusFilter) &&
       (categoryFilter === 'all' || s.categoryId === categoryFilter),
   );
+  // Версии одного сценария идут подряд, чтобы v1 и v2 не выглядели разными сценариями.
+  const rows = groupByVersions(list, all);
 
   return (
     <>
@@ -92,19 +96,24 @@ export function ScenarioListPage() {
             <thead>
               <tr>
                 <th>Название</th><th>Категория</th><th>Сложность</th>
-                <th>Источник</th><th>Статус</th><th>Создан</th>
+                <th>Источник</th><th>Статус</th><th>В занятиях</th><th>Создан</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((s) => (
+              {rows.map(({ scenario: s, grouped }) => (
                 <tr key={s.id}>
-                  <td><Link to={`/teacher/scenarios/${s.id}`}>{s.title}</Link></td>
+                  <td>
+                    {grouped && versionNo(s) > 1 && <span className="dim" aria-hidden="true">↳ </span>}
+                    <Link to={`/teacher/scenarios/${s.id}`}>{s.title}</Link>
+                    {grouped && <> <Badge tone="accent">версия {versionNo(s)}</Badge></>}
+                  </td>
                   <td className="muted">{s.categoryName}</td>
                   <td><DifficultyBadge level={s.difficulty} /></td>
                   <td className="muted small">
                     {SOURCE_LABEL[s.source] ?? 'Не указан'}
                   </td>
                   <td><ScenarioStatusBadge status={s.status} /></td>
+                  <td className="mono">{scenarioInUse(s) ? scenarioLessonsCount(s) : '—'}</td>
                   <td className="muted small nowrap">{formatDate(s.createdAt)}</td>
                 </tr>
               ))}

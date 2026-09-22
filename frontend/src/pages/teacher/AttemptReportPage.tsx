@@ -9,6 +9,7 @@ import { formatDateTime, formatDelta, formatDuration } from '../../shared/utils/
 import { labelForPath, labelForValue } from '../../shared/utils/labels';
 import type { ClassifierLabels } from '../../shared/api';
 import type { Evaluation } from '../../shared/types';
+import { scenarioLabel } from '../../features/scenario/versioning';
 
 const EVENT_LABEL: Record<string, string> = {
   issued: 'Карточка выдана',
@@ -98,7 +99,7 @@ export function AttemptReportPage() {
           </div>
           <h1>Разбор попытки</h1>
           <div className="page-head__sub">
-            {participant?.name ?? a.userId} · {scenario.data?.title ?? '—'} · карточка № {a.incidentNo}
+            {participant?.name ?? a.userId} · {scenario.data ? scenarioLabel(scenario.data) : '—'} · карточка № {a.incidentNo}
           </div>
         </div>
         <div className="page-head__actions">

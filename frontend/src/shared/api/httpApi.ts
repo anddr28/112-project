@@ -137,6 +137,8 @@ export const httpApi: Api = {
     create: (input) => request('POST', '/scenarios', { body: input }),
     generate: (input) => request('POST', '/scenarios/generate', { body: input }),
     update: (id, patch) => request('PATCH', `/scenarios/${enc(id)}`, { body: patch }),
+    // BACKEND DEPENDENCY: endpoint объявлен backend, в frontend.v1.yaml его пока нет.
+    createVersion: (id) => request('POST', `/scenarios/${enc(id)}/versions`),
     approve: (id) => request('POST', `/scenarios/${enc(id)}/approve`),
     reject: (id, reason) => request('POST', `/scenarios/${enc(id)}/reject`, { body: { reason } }),
   },

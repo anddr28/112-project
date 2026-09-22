@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { api, isApiError } from '../../shared/api';
+import { api, hasErrorCode } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
 import { Card, Field, NumberInput } from '../../components/ui';
+import { scenarioSaveError } from './versioning';
 import { APPLICANT_STATUSES } from '../../shared/types';
 import type {
   ApplicantStatus, ChecklistItemKind, DialogueBrief, DialogueChecklistItem, DialogueFact,
@@ -107,10 +108,13 @@ function toPatch(d: Draft, s: Scenario): Partial<Scenario> {
 export function ScenarioEditor({
   scenario,
   onSaved,
+  onConflict,
   onCancel,
 }: {
   scenario: Scenario;
   onSaved: () => void;
+  /** сценарий успел попасть в занятие — страница перечитает его и предложит новую версию */
+  onConflict?: (message: string) => void;
   onCancel: () => void;
 }) {
   const types = useAsync(() => api.classifier.incidentTypes(), []);
@@ -133,10 +137,10 @@ export function ScenarioEditor({
       await api.scenarios.update(scenario.id, toPatch(draft, scenario));
       onSaved();
     } catch (e) {
-      setError(
-        isApiError(e) || e instanceof Error ? e.message : 'Не удалось сохранить сценарий',
-      );
+      const message = scenarioSaveError(e, scenario, 'Не удалось сохранить сценарий');
+      setError(message);
       setBusy(false);
+      if (hasErrorCode(e, 'conflict')) onConflict?.(message);
     }
   }
 

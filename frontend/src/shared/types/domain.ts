@@ -332,6 +332,20 @@ export interface Scenario {
   scoring?: Scoring;
   /** эталон режима «действия с карточками» */
   expectedActions?: ExpectedAction[];
+  /*
+   * Версии сценария. Решение backend по lifecycle: сценарий, который уже
+   * используется в занятиях, не правится — от него создаётся новая версия
+   * (POST /scenarios/{id}/versions). BACKEND DEPENDENCY: в frontend.v1.yaml
+   * этих полей пока нет; имена согласовать при добавлении в контракт.
+   */
+  /** используется хотя бы в одном занятии — признак отдаёт сервер, не статус */
+  inUse?: boolean;
+  /** число занятий, где используется сценарий (для сообщения об ошибке) */
+  lessonsCount?: number;
+  /** номер версии в цепочке; у исходного сценария — 1 */
+  version?: number;
+  /** сценарий, копией которого создана эта версия */
+  parentScenarioId?: string;
 }
 
 export interface Lesson {

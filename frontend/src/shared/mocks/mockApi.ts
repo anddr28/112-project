@@ -125,6 +125,35 @@ function currentOperatorLabel(): string {
 }
 
 /**
+ * В скольких занятиях используется сценарий. Считает сервер (здесь — mock),
+ * интерфейс получает готовые `inUse` / `lessonsCount` и статус не толкует.
+ */
+function scenarioLessonsCount(id: string): number {
+  return db.lessons.filter((l) => l.scenarioIds.includes(id)).length;
+}
+
+/** Сценарий в ответе API: с признаком использования и номером версии. */
+function withUsage(s: Scenario): Scenario {
+  const lessonsCount = scenarioLessonsCount(s.id);
+  return { ...clone(s), version: s.version ?? 1, inUse: lessonsCount > 0, lessonsCount };
+}
+
+/** Все версии одного сценария: от исходного по ссылкам на родителя. */
+function versionChain(s: Scenario): Scenario[] {
+  let root = s;
+  while (root.parentScenarioId) {
+    const parent = scenarioById(root.parentScenarioId);
+    if (!parent) break;
+    root = parent;
+  }
+  const chain = [root];
+  for (let i = 0; i < chain.length; i++) {
+    chain.push(...db.scenarios.filter((x) => x.parentScenarioId === chain[i].id));
+  }
+  return chain;
+}
+
+/**
  * Чего не хватает сценарию для выдачи обучающимся.
  *
  * Проверяется ровно то, без чего попытку невозможно оценить: эталон, по
@@ -510,12 +539,12 @@ export const mockApi: Api = {
   },
 
   scenarios: {
-    list: () => delay(clone(db.scenarios)),
+    list: () => delay(db.scenarios.map(withUsage)),
 
     async get(id) {
       const s = scenarioById(id);
       if (!s) fail('Сценарий не найден');
-      return delay(clone(s));
+      return delay(withUsage(s));
     },
 
     async create(input: CreateScenarioInput) {
@@ -587,20 +616,56 @@ export const mockApi: Api = {
       return delay({ jobId: job.id, scenarioId: scenario.id, estWaitSec: job.estWaitSec }, 300);
     },
 
+    /*
+     * Решение backend: запрет правки определяется использованием в занятиях,
+     * а не статусом. Подтверждённый, но ещё не выданный сценарий правится.
+     */
     async update(id, patch) {
       const s = scenarioById(id);
       if (!s) fail('Сценарий не найден');
-      if (s.status === 'validated') {
+      const lessonsCount = scenarioLessonsCount(id);
+      if (lessonsCount > 0) {
         throw new ApiRequestError(
           'conflict',
-          'Подтверждённый сценарий не правится: создайте новую версию',
+          `Сценарий используется в занятиях (${lessonsCount}), изменить нельзя — создайте новую версию`,
+          { status: 409, details: { lessonsCount } },
         );
       }
-      Object.assign(s, patch);
+      // Служебные поля версии и использования правкой не меняются.
+      const { inUse: _inUse, lessonsCount: _count, version: _version, parentScenarioId: _parent, ...editable } = patch;
+      Object.assign(s, editable);
       // Правка эталона — новая версия: завершённые попытки ссылаются на свою.
       if (patch.etalonDraft || patch.requiredFields) s.etalonVersion += 1;
       persistScenario(s);
-      return delay(clone(s), 250);
+      return delay(withUsage(s), 250);
+    },
+
+    /**
+     * POST /scenarios/{id}/versions (BACKEND DEPENDENCY): копия в статусе
+     * draft со ссылкой на родителя. Родитель и занятия на нём не меняются.
+     */
+    async createVersion(id) {
+      const parent = scenarioById(id);
+      if (!parent) fail('Сценарий не найден');
+      const chain = versionChain(parent);
+      const copy: Scenario = {
+        ...clone(parent),
+        id: uid('sc'),
+        status: 'draft',
+        version: Math.max(...chain.map((x) => x.version ?? 1)) + 1,
+        parentScenarioId: parent.id,
+        authorId: sessionUser()?.id ?? parent.authorId,
+        createdAt: new Date().toISOString(),
+        etalonVersion: 1,
+        ttsReady: false,
+      };
+      delete copy.validatedBy;
+      delete copy.validatedAt;
+      delete copy.inUse;
+      delete copy.lessonsCount;
+      db.scenarios.unshift(copy);
+      persistScenario(copy);
+      return delay(withUsage(copy), 300);
     },
 
     async approve(id) {
@@ -620,7 +685,7 @@ export const mockApi: Api = {
       s.validatedBy = currentUserName();
       s.validatedAt = new Date().toISOString();
       persistScenario(s);
-      return delay(clone(s), 300);
+      return delay(withUsage(s), 300);
     },
 
     async reject(id, reason) {
@@ -629,7 +694,7 @@ export const mockApi: Api = {
       s.status = 'rejected';
       s.teacherComment = reason;
       persistScenario(s);
-      return delay(clone(s), 250);
+      return delay(withUsage(s), 250);
     },
   },
 
@@ -655,6 +720,14 @@ export const mockApi: Api = {
        * и чек-листа протокола: заявителю нечего отвечать, а разговор нечем
        * оценивать. Контракт отвечает на это 422 — здесь та же проверка.
        */
+      // В занятие попадают только подтверждённые сценарии (версия-черновик — нет).
+      const unapproved = input.scenarioIds.filter((id) => scenarioById(id)?.status !== 'validated');
+      if (unapproved.length > 0) {
+        throw new ApiRequestError('validation', 'В занятие можно включить только подтверждённые сценарии', {
+          details: { scenarioIds: unapproved },
+        });
+      }
+
       if (input.voice?.enabled) {
         const notReady = input.scenarioIds
           .map((id) => scenarioById(id))

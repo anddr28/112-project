@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
-import { Card, ErrorState, Field, LessonStatusBadge, Loading, Modal, NumberInput } from '../../components/ui';
+import { Badge, Card, ErrorState, Field, LessonStatusBadge, Loading, Modal, NumberInput } from '../../components/ui';
 import { formatDate } from '../../shared/utils/time';
 import { shortName } from '../../shared/utils/user';
+import { groupByVersions, versionNo } from '../../features/scenario/versioning';
 import type { ArmPerspective, Difficulty, LessonSettings, VoiceInput, VoiceSettings } from '../../shared/types';
 
 /** Доли слоёв в процентах — так их складывает и правит преподаватель. */
@@ -21,7 +22,15 @@ const WEIGHT_LAYERS: Array<{ key: keyof LessonSettings['weights']; label: string
 
 export function LessonListPage() {
   const lessons = useAsync(() => api.lessons.list(), []);
-  const [creating, setCreating] = useState(false);
+  // Из карточки сценария: ?create=1&scenario=<id> — форма с выбранным сценарием.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [creating, setCreating] = useState(searchParams.get('create') === '1');
+  const preselected = searchParams.get('scenario');
+
+  function closeCreate() {
+    setCreating(false);
+    if (searchParams.has('create')) setSearchParams({}, { replace: true });
+  }
 
   if (lessons.loading) return <Loading />;
   if (lessons.error) return <ErrorState text={lessons.error} onRetry={lessons.reload} />;
@@ -74,12 +83,12 @@ export function LessonListPage() {
         )}
       </Card>
 
-      {creating && <CreateLessonModal onClose={() => setCreating(false)} />}
+      {creating && <CreateLessonModal onClose={closeCreate} initialScenarioId={preselected} />}
     </>
   );
 }
 
-function CreateLessonModal({ onClose }: { onClose: () => void }) {
+function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void; initialScenarioId: string | null }) {
   const scenarios = useAsync(() => api.scenarios.list(), []);
   const students = useAsync(() => api.users.list(), []);
   const defaults = useAsync(() => api.lessons.defaultSettings(), []);
@@ -95,12 +104,14 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
   const [voice, setVoice] = useState<VoiceSettings | null>(null);
   /** проценты слоёв; null — ещё не получены параметры по умолчанию */
   const [weightPct, setWeightPct] = useState<WeightPct | null>(null);
-  const [scenarioIds, setScenarioIds] = useState<string[]>([]);
+  const [scenarioIds, setScenarioIds] = useState<string[]>(initialScenarioId ? [initialScenarioId] : []);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const validated = (scenarios.data ?? []).filter((s) => s.status === 'validated');
+  const allScenarios = scenarios.data ?? [];
+  // Только подтверждённые; версии одного сценария — рядом и с номером.
+  const validated = groupByVersions(allScenarios.filter((s) => s.status === 'validated'), allScenarios);
   const learners = (students.data ?? []).filter((u) => u.role === 'student' && u.status === 'active');
   // Значение поля — введённое пользователем либо значение по умолчанию.
   const threshold = passThreshold ?? defaults.data?.passThreshold;
@@ -345,7 +356,7 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
             <p className="muted small">Нет подтверждённых сценариев. Сначала подтвердите сценарий.</p>
           ) : (
             <div className="stack" style={{ gap: 6 }}>
-              {validated.map((s) => (
+              {validated.map(({ scenario: s, grouped }) => (
                 <label key={s.id} className="row" style={{ padding: '7px 10px', border: '1px solid var(--u-border)', borderRadius: 4, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -353,6 +364,7 @@ function CreateLessonModal({ onClose }: { onClose: () => void }) {
                     onChange={() => toggle(scenarioIds, setScenarioIds, s.id)}
                   />
                   <span>{s.title}</span>
+                  {grouped && <Badge tone="accent">версия {versionNo(s)}</Badge>}
                   <span className="dim small">· {s.categoryName} · сложность {s.difficulty}</span>
                 </label>
               ))}

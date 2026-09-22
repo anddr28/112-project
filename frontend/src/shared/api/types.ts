@@ -187,7 +187,14 @@ export interface Api {
     create(input: CreateScenarioInput): Promise<Scenario>;
     /** Асинхронно: 202 → опрос `aiJobs.get(jobId)` до done/failed (минуты на реальном ai-service). */
     generate(input: GenerateScenarioInput): Promise<GenerateScenarioAccepted>;
+    /** 409 `conflict`, если сценарий уже используется в занятиях. */
     update(id: string, patch: Partial<Scenario>): Promise<Scenario>;
+    /**
+     * Новая версия (draft) — копия сценария со ссылкой на родителя; родитель
+     * не меняется. BACKEND DEPENDENCY: POST /scenarios/{id}/versions ещё нет
+     * в frontend.v1.yaml.
+     */
+    createVersion(id: string): Promise<Scenario>;
     approve(id: string): Promise<Scenario>;
     reject(id: string, reason: string): Promise<Scenario>;
   };
