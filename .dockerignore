@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/dist
+data
+go-core/data
+**/.DS_Store
+docs/*.png
+ai-service/models
