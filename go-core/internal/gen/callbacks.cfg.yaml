@@ -1,0 +1,7 @@
+# oapi-codegen: callback ai-service -> go-core (contracts/openapi/go-internal.v1.yaml)
+package: callbacks
+generate:
+  models: true
+output: internal/gen/callbacks/types.gen.go
+import-mapping:
+  _components.yaml: lct/gocore/internal/gen/components

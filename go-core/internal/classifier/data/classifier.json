@@ -1,0 +1,1103 @@
+{
+ "_comment": "Сид классификатора: конвертирован из frontend/src/shared/mocks/fixtures/classifier.ts. Ключ — code (id в БД — uuid). fixtureId — id типа во фронтовых фикстурах (it-*), для переноса демо-данных. rules — в порядке RULES фикстуры (порядок важен: первичность «залипает», причина — от первого правила).",
+ "types": [
+  {
+   "code": "101",
+   "fixtureId": "it-101",
+   "name": "Происшествие 101",
+   "depth": 1,
+   "synonyms": [
+    "пожар",
+    "дым",
+    "задымление",
+    "горит"
+   ],
+   "reference": "Пожар. Уточнить: что горит, есть ли открытое пламя, угроза людям, этаж, наличие газификации. При угрозе людям — немедленно 101 и 103.",
+   "attributes": [
+    {
+     "code": "where",
+     "label": "Где",
+     "widget": "chips-single",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "street",
+       "label": "Улица"
+      },
+      {
+       "code": "transport",
+       "label": "Транспорт"
+      },
+      {
+       "code": "house",
+       "label": "Дом"
+      },
+      {
+       "code": "building",
+       "label": "Здание / объект"
+      },
+      {
+       "code": "hazard",
+       "label": "Опасный объект"
+      }
+     ]
+    },
+    {
+     "code": "fire_sign",
+     "label": "Признак пожара (дом)",
+     "widget": "chips-single",
+     "order": 2,
+     "required": true,
+     "visibleWhen": {
+      "attr": "where",
+      "anyOf": [
+       "house"
+      ]
+     },
+     "options": [
+      {
+       "code": "flame",
+       "label": "Открытое пламя / Дым"
+      },
+      {
+       "code": "burning_smell",
+       "label": "Запах гари"
+      },
+      {
+       "code": "alarm",
+       "label": "Сработала пожарная сигнализация"
+      }
+     ]
+    },
+    {
+     "code": "access",
+     "label": "Доступ",
+     "widget": "chips-multi",
+     "order": 3,
+     "options": [
+      {
+       "code": "no_access",
+       "label": "Нет доступа"
+      }
+     ]
+    },
+    {
+     "code": "house_kind",
+     "label": "Дом (пламя, дым)",
+     "widget": "chips-single",
+     "order": 4,
+     "visibleWhen": {
+      "attr": "fire_sign",
+      "anyOf": [
+       "flame",
+       "burning_smell"
+      ]
+     },
+     "options": [
+      {
+       "code": "multi",
+       "label": "Дом многоквартирный"
+      },
+      {
+       "code": "private",
+       "label": "Дом частный"
+      },
+      {
+       "code": "dacha",
+       "label": "Дача"
+      },
+      {
+       "code": "shed",
+       "label": "Сарай / бытовка / хоз. постройка"
+      },
+      {
+       "code": "evicted",
+       "label": "Выселенное здание"
+      }
+     ]
+    },
+    {
+     "code": "floors",
+     "label": "Этажность здания",
+     "widget": "number",
+     "order": 5
+    },
+    {
+     "code": "people_threat",
+     "label": "Угроза людям",
+     "widget": "bool",
+     "order": 6,
+     "required": true,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "indoor_objects",
+     "label": "Внутридомовые объекты (пламя, дым)",
+     "widget": "chips-multi",
+     "order": 7,
+     "visibleWhen": {
+      "attr": "fire_sign",
+      "anyOf": [
+       "flame",
+       "burning_smell"
+      ]
+     },
+     "options": [
+      {
+       "code": "apartment",
+       "label": "Квартира"
+      },
+      {
+       "code": "balcony",
+       "label": "Балкон"
+      },
+      {
+       "code": "gas_column",
+       "label": "Газовая колонка"
+      },
+      {
+       "code": "gas_stove",
+       "label": "Газовая плита"
+      },
+      {
+       "code": "elevator",
+       "label": "Лифт"
+      },
+      {
+       "code": "chute",
+       "label": "Мусоропровод"
+      },
+      {
+       "code": "entrance",
+       "label": "Подъезд"
+      },
+      {
+       "code": "el_meter",
+       "label": "Счетчик электричества"
+      },
+      {
+       "code": "wiring",
+       "label": "Электрическая проводка"
+      },
+      {
+       "code": "el_panel",
+       "label": "Электрощит"
+      },
+      {
+       "code": "stairs",
+       "label": "Лестничная клетка"
+      },
+      {
+       "code": "basement",
+       "label": "Подвал"
+      },
+      {
+       "code": "other_indoor",
+       "label": "Прочие внутридомовые объекты"
+      },
+      {
+       "code": "roof",
+       "label": "Крыша"
+      }
+     ]
+    },
+    {
+     "code": "traffic_block",
+     "label": "Есть ли перекрытие движения",
+     "widget": "bool",
+     "order": 8,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "gasified",
+     "label": "Проведена ли газификация",
+     "widget": "chips-single",
+     "order": 9,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      },
+      {
+       "code": "unknown",
+       "label": "Нет данных"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "102",
+   "fixtureId": "it-102",
+   "name": "Происшествие 102",
+   "depth": 1,
+   "synonyms": [
+    "полиция",
+    "нападение",
+    "кража",
+    "драка"
+   ],
+   "reference": "Нарушение правопорядка. Уточнить: что произошло, есть ли пострадавшие, применяется ли оружие, приметы и направление движения участников. Не советовать заявителю вступать в контакт с нарушителями. Оповещается 102, при пострадавших — 103.",
+   "attributes": []
+  },
+  {
+   "code": "103",
+   "fixtureId": "it-103",
+   "name": "Происшествие 103",
+   "depth": 1,
+   "synonyms": [
+    "скорая",
+    "медицина",
+    "плохо",
+    "вызов 03"
+   ],
+   "reference": "Медицинская помощь. Уточнить: возраст и пол пострадавшего, в сознании ли, дышит ли, что и когда случилось, хронические заболевания. При угрозе жизни — оставаться на линии и давать рекомендации до прибытия бригады. Оповещается 103.",
+   "attributes": []
+  },
+  {
+   "code": "104",
+   "fixtureId": "it-104",
+   "name": "Происшествие 104",
+   "depth": 1,
+   "synonyms": [
+    "газ",
+    "запах газа",
+    "утечка"
+   ],
+   "reference": "Запах газа. Запретить пользоваться электроприборами и открытым огнём, рекомендовать проветрить помещение и покинуть его. Службы 104, при угрозе — 101.",
+   "attributes": [
+    {
+     "code": "gas_sign",
+     "label": "Признаки происшествия",
+     "widget": "chips-multi",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "outdoor",
+       "label": "Запах газа вне помещения (на улице)"
+      },
+      {
+       "code": "indoor",
+       "label": "Запах газа в помещении (в квартире, в доме)"
+      },
+      {
+       "code": "equipment",
+       "label": "Нарушение в работе газового оборудования"
+      },
+      {
+       "code": "pipeline",
+       "label": "Повреждение газопровода"
+      },
+      {
+       "code": "pressure",
+       "label": "Повышенное давление газа"
+      }
+     ]
+    },
+    {
+     "code": "people_threat",
+     "label": "Угроза людям",
+     "widget": "bool",
+     "order": 2,
+     "required": true,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "gorhoz",
+   "fixtureId": "it-gorhoz",
+   "name": "Аварии и происшествия в городском хозяйстве",
+   "depth": 1,
+   "synonyms": [
+    "авария",
+    "жкх",
+    "коммунальные"
+   ],
+   "reference": "Аварии в городском хозяйстве. Уточнить: что повреждено (вода, тепло, электричество, газ, лифт), масштаб, есть ли угроза людям, затопление или отключение жилых домов. Оповещаются профильные городские службы и Деп. ЖКХ, при угрозе людям — 101.",
+   "attributes": []
+  },
+  {
+   "code": "explosion",
+   "fixtureId": "it-explosion",
+   "name": "Взрыв",
+   "depth": 2,
+   "synonyms": [
+    "взрыв",
+    "хлопок"
+   ],
+   "reference": "Взрыв. Уточнить характер разрушений, наличие возгорания и угрозы обрушения. Оповещаются 101, 102, 103, ФСБ.",
+   "attributes": [
+    {
+     "code": "where_explosion",
+     "label": "Где взрыв",
+     "widget": "chips-single",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "building",
+       "label": "Здание / Объект"
+      },
+      {
+       "code": "transport",
+       "label": "Транспорт"
+      },
+      {
+       "code": "unknown",
+       "label": "Звуки похожие на взрыв, что взорвалось сообщить не может"
+      }
+     ]
+    },
+    {
+     "code": "has_fire",
+     "label": "Есть возгорание",
+     "widget": "bool",
+     "order": 2,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "collapse_threat",
+     "label": "Есть угроза обрушения",
+     "widget": "bool",
+     "order": 3,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "damage_seen",
+     "label": "Какие видят разрушения",
+     "widget": "text",
+     "order": 4
+    }
+   ]
+  },
+  {
+   "code": "dtp",
+   "fixtureId": "it-dtp",
+   "name": "ДТП",
+   "depth": 2,
+   "synonyms": [
+    "дтп",
+    "авария",
+    "столкновение",
+    "наезд"
+   ],
+   "reference": "ДТП. Уточнить количество пострадавших и наличие перекрытия движения. Оповещаются 102, 103, ЦОДД.",
+   "attributes": [
+    {
+     "code": "dtp_kind",
+     "label": "Вид ДТП",
+     "widget": "chips-single",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "collision",
+       "label": "Столкновение"
+      },
+      {
+       "code": "pedestrian",
+       "label": "Наезд на пешехода"
+      },
+      {
+       "code": "rollover",
+       "label": "Опрокидывание"
+      },
+      {
+       "code": "obstacle",
+       "label": "Наезд на препятствие"
+      }
+     ]
+    },
+    {
+     "code": "victims",
+     "label": "Есть пострадавшие",
+     "widget": "bool",
+     "order": 2,
+     "required": true,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "traffic_block",
+     "label": "Есть ли перекрытие движения",
+     "widget": "bool",
+     "order": 3,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "collapse",
+   "fixtureId": "it-collapse",
+   "name": "Обрушение",
+   "depth": 2,
+   "synonyms": [
+    "обрушение",
+    "обвал"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "water",
+   "fixtureId": "it-water",
+   "name": "Повреждение водопровода",
+   "depth": 2,
+   "synonyms": [
+    "вода",
+    "прорыв",
+    "течь",
+    "затопление"
+   ],
+   "reference": "Повреждение водопровода. Уточнить тип воды и зону затопления. Оповещаются Мосводоканал и Деп. ЖКХ.",
+   "attributes": [
+    {
+     "code": "water_where",
+     "label": "Где повреждение",
+     "widget": "chips-single",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "yard",
+       "label": "Двор"
+      },
+      {
+       "code": "street",
+       "label": "Улица"
+      },
+      {
+       "code": "entrance",
+       "label": "Подъезд"
+      },
+      {
+       "code": "apartment",
+       "label": "Квартира"
+      },
+      {
+       "code": "basement",
+       "label": "Подвал"
+      }
+     ]
+    },
+    {
+     "code": "water_type",
+     "label": "Тип воды",
+     "widget": "chips-single",
+     "order": 2,
+     "options": [
+      {
+       "code": "hot",
+       "label": "Горячая"
+      },
+      {
+       "code": "cold",
+       "label": "Холодная"
+      },
+      {
+       "code": "unknown",
+       "label": "Нет данных"
+      }
+     ]
+    },
+    {
+     "code": "people_threat",
+     "label": "Угроза людям",
+     "widget": "bool",
+     "order": 3,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "elevator",
+   "fixtureId": "it-elevator",
+   "name": "Застревание в лифте",
+   "depth": 2,
+   "synonyms": [
+    "лифт",
+    "застрял"
+   ],
+   "attributes": [
+    {
+     "code": "people_inside",
+     "label": "Есть люди в кабине",
+     "widget": "bool",
+     "order": 1,
+     "required": true,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    },
+    {
+     "code": "medical_needed",
+     "label": "Требуется медицинская помощь",
+     "widget": "bool",
+     "order": 2,
+     "options": [
+      {
+       "code": "yes",
+       "label": "Да"
+      },
+      {
+       "code": "no",
+       "label": "Нет"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "tree",
+   "fixtureId": "it-tree",
+   "name": "Падение дерева",
+   "depth": 2,
+   "synonyms": [
+    "дерево",
+    "упало"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "wrong-number",
+   "fixtureId": "it-wrong",
+   "name": "Ошибочно набран номер",
+   "depth": 1,
+   "synonyms": [
+    "ошибка",
+    "не туда"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "person-danger",
+   "fixtureId": "it-danger",
+   "name": "Человек в опасности",
+   "depth": 2,
+   "synonyms": [
+    "опасность",
+    "угроза"
+   ],
+   "reference": "Человек в опасности. Уточнить: где находится человек, что ему угрожает, может ли он самостоятельно покинуть опасное место, есть ли травмы. Оповещаются 101, при травмах — 103.",
+   "attributes": []
+  },
+  {
+   "code": "cancel",
+   "fixtureId": "it-cancel",
+   "name": "Отмена вызова",
+   "depth": 1,
+   "synonyms": [
+    "отмена"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "test",
+   "fixtureId": "it-test",
+   "name": "Тестовый вызов",
+   "depth": 1,
+   "synonyms": [
+    "тест",
+    "проверка"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "consult",
+   "fixtureId": "it-consult",
+   "name": "Консультация",
+   "depth": 1,
+   "synonyms": [
+    "консультация",
+    "справка"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "foreign",
+   "fixtureId": "it-foreign",
+   "name": "Вызов на иностранном языке",
+   "depth": 1,
+   "synonyms": [
+    "иностранный",
+    "язык"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "handover",
+   "fixtureId": "it-handover",
+   "name": "Передача дежурства",
+   "depth": 1,
+   "synonyms": [
+    "дежурство"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "spravka-101",
+   "fixtureId": "it-101ref",
+   "name": "Справка-101",
+   "depth": 1,
+   "synonyms": [
+    "справка"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "hydro",
+   "fixtureId": "it-hydro",
+   "name": "Аварии на гидротехнических сооружениях",
+   "depth": 2,
+   "synonyms": [
+    "гидро",
+    "плотина"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "hazard",
+   "fixtureId": "it-hazard",
+   "name": "Аварии на опасных и производственных объектах",
+   "depth": 2,
+   "synonyms": [
+    "опасный объект",
+    "производство"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "uav",
+   "fixtureId": "it-uav",
+   "name": "БПЛА",
+   "depth": 2,
+   "synonyms": [
+    "бпла",
+    "дрон",
+    "беспилотник"
+   ],
+   "attributes": []
+  },
+  {
+   "code": "thanks",
+   "fixtureId": "it-thanks",
+   "name": "Благодарность службам",
+   "depth": 1,
+   "synonyms": [
+    "благодарность",
+    "спасибо"
+   ],
+   "attributes": []
+  }
+ ],
+ "frequent": [
+  "dtp",
+  "wrong-number",
+  "104",
+  "person-danger",
+  "cancel",
+  "test",
+  "handover",
+  "consult",
+  "foreign",
+  "spravka-101"
+ ],
+ "significant": [
+  "101",
+  "explosion",
+  "collapse",
+  "hazard",
+  "uav"
+ ],
+ "rules": [
+  {
+   "type": "101",
+   "services": [
+    {
+     "code": "101",
+     "primary": true,
+     "reason": "тип происшествия: пожар"
+    },
+    {
+     "code": "zhkh",
+     "primary": false,
+     "reason": "тип происшествия: пожар в жилом секторе"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "people_threat",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "103",
+     "primary": true,
+     "reason": "признак: угроза людям"
+    },
+    {
+     "code": "cemp",
+     "primary": false,
+     "reason": "признак: угроза людям"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "indoor_objects",
+   "anyOf": [
+    "gas_column",
+    "gas_stove"
+   ],
+   "services": [
+    {
+     "code": "104",
+     "primary": true,
+     "reason": "признак: газовое оборудование"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "indoor_objects",
+   "anyOf": [
+    "elevator"
+   ],
+   "services": [
+    {
+     "code": "moslift",
+     "primary": false,
+     "reason": "признак: лифт"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "indoor_objects",
+   "anyOf": [
+    "wiring",
+    "el_panel",
+    "el_meter"
+   ],
+   "services": [
+    {
+     "code": "oek",
+     "primary": false,
+     "reason": "признак: электрооборудование"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "traffic_block",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "codd",
+     "primary": false,
+     "reason": "признак: перекрытие движения"
+    }
+   ]
+  },
+  {
+   "type": "101",
+   "attr": "gasified",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "104",
+     "primary": false,
+     "reason": "признак: дом газифицирован"
+    }
+   ]
+  },
+  {
+   "type": "104",
+   "services": [
+    {
+     "code": "104",
+     "primary": true,
+     "reason": "тип происшествия: запах газа"
+    },
+    {
+     "code": "zhkh",
+     "primary": false,
+     "reason": "тип происшествия: запах газа"
+    }
+   ]
+  },
+  {
+   "type": "104",
+   "attr": "gas_sign",
+   "anyOf": [
+    "indoor",
+    "pipeline",
+    "pressure"
+   ],
+   "services": [
+    {
+     "code": "101",
+     "primary": true,
+     "reason": "признак: газ в помещении / повреждение газопровода"
+    }
+   ]
+  },
+  {
+   "type": "104",
+   "attr": "people_threat",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "103",
+     "primary": false,
+     "reason": "признак: угроза людям"
+    }
+   ]
+  },
+  {
+   "type": "explosion",
+   "services": [
+    {
+     "code": "101",
+     "primary": true,
+     "reason": "тип происшествия: взрыв"
+    },
+    {
+     "code": "102",
+     "primary": true,
+     "reason": "тип происшествия: взрыв"
+    },
+    {
+     "code": "103",
+     "primary": true,
+     "reason": "тип происшествия: взрыв"
+    },
+    {
+     "code": "fsb",
+     "primary": false,
+     "reason": "тип происшествия: взрыв"
+    },
+    {
+     "code": "mosbez",
+     "primary": false,
+     "reason": "тип происшествия: взрыв"
+    }
+   ]
+  },
+  {
+   "type": "water",
+   "services": [
+    {
+     "code": "vodokanal",
+     "primary": true,
+     "reason": "тип происшествия: повреждение водопровода"
+    },
+    {
+     "code": "zhkh",
+     "primary": true,
+     "reason": "тип происшествия: повреждение водопровода"
+    }
+   ]
+  },
+  {
+   "type": "water",
+   "attr": "water_where",
+   "anyOf": [
+    "street",
+    "yard"
+   ],
+   "services": [
+    {
+     "code": "mosvodostok",
+     "primary": false,
+     "reason": "признак: повреждение вне здания"
+    },
+    {
+     "code": "oati",
+     "primary": false,
+     "reason": "признак: повреждение вне здания"
+    }
+   ]
+  },
+  {
+   "type": "dtp",
+   "services": [
+    {
+     "code": "102",
+     "primary": true,
+     "reason": "тип происшествия: ДТП"
+    },
+    {
+     "code": "codd",
+     "primary": true,
+     "reason": "тип происшествия: ДТП"
+    }
+   ]
+  },
+  {
+   "type": "dtp",
+   "attr": "victims",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "103",
+     "primary": true,
+     "reason": "признак: есть пострадавшие"
+    }
+   ]
+  },
+  {
+   "type": "elevator",
+   "services": [
+    {
+     "code": "moslift",
+     "primary": true,
+     "reason": "тип происшествия: застревание в лифте"
+    }
+   ]
+  },
+  {
+   "type": "elevator",
+   "attr": "people_inside",
+   "anyOf": [
+    "yes"
+   ],
+   "services": [
+    {
+     "code": "101",
+     "primary": true,
+     "reason": "признак: люди в кабине"
+    }
+   ]
+  },
+  {
+   "type": "tree",
+   "services": [
+    {
+     "code": "zhkh",
+     "primary": true,
+     "reason": "тип происшествия: падение дерева"
+    },
+    {
+     "code": "oati",
+     "primary": false,
+     "reason": "тип происшествия: падение дерева"
+    }
+   ]
+  },
+  {
+   "type": "102",
+   "services": [
+    {
+     "code": "102",
+     "primary": true,
+     "reason": "тип происшествия"
+    }
+   ]
+  },
+  {
+   "type": "103",
+   "services": [
+    {
+     "code": "103",
+     "primary": true,
+     "reason": "тип происшествия"
+    }
+   ]
+  }
+ ]
+}

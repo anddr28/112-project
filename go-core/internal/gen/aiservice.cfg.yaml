@@ -1,0 +1,8 @@
+# oapi-codegen: клиент ai-service (contracts/openapi/ai-service.v1.yaml)
+package: aiservice
+generate:
+  models: true
+  client: true
+output: internal/gen/aiservice/client.gen.go
+import-mapping:
+  _components.yaml: lct/gocore/internal/gen/components

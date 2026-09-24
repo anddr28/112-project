@@ -1,0 +1,23 @@
+{
+ "applicant.name": "ФИО заявителя",
+ "applicant.status": "Статус заявителя",
+ "phones.aon": "Телефон АОН",
+ "phones.provided": "Предоставленный номер",
+ "address.raw": "Адрес",
+ "address.street": "Улица",
+ "address.house": "Дом",
+ "address.entrance": "Подъезд",
+ "address.floor": "Этаж",
+ "incidentTypeIds": "Тип происшествия",
+ "description": "Описание со слов заявителя",
+ "actionsTaken": "Действия оператора",
+ "flags.victimsPresent": "Пострадавшие",
+ "flags.victimsCount": "Количество пострадавших",
+ "flags.ambulanceRefusal": "Нет на месте / отказ от скорой",
+ "flags.blocked": "Нет доступа / заблокированные",
+ "flags.noContact": "Нет контакта с заявителем",
+ "flags.callDropped": "Срыв звонка",
+ "applicant.foreignLanguage": "Вызов на иностранном языке",
+ "phones.onSite": "Телефон на место",
+ "services": "Службы"
+}
