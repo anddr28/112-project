@@ -33,8 +33,11 @@ v1.1 (2026-09-20) — голосовой режим; концепция в `docs
         go-core: UPDATE evaluations → пересчёт total_score → done → XP
                  (дубликат callback'а → 200, игнор)
 
-reaper go-core: running старше N мин → queued (переотправка; идемпотентность по request_id)
-poison-pill:    try_count ≥ max_tries → failed → "требуется ревью преподавателя"
+reaper go-core: running старше N мин → queued (переотправка бесплатна — ожидание в очереди
+                ai-service не ошибка; сдаётся после 12 × N от первой отправки)
+poison-pill:    try_count (только реальные отказы) ≥ max_tries → failed → "требуется ревью преподавателя"
+недоступность:  ai-service лежит дольше N мин → evaluate_* = failed(ai_unavailable), оценка
+                по доступным слоям + needsReview; generate/tts ждут восстановления
 ```
 
 ## Кто что считает
@@ -91,7 +94,10 @@ type, run_after`) — модели не свапаются вперемешку 
 
 ## Правила эксплуатации контракта
 
-* `request_id = ai_jobs.id` — ключ идемпотентности на обоих концах.
+* `request_id = ai_jobs.id` — ключ идемпотентности на обоих концах. Повторная отправка ПОСЛЕ
+  failed-результата идёт под новым request_id (id отправки хранится в `payload.request_id`):
+  иначе ai-service по идемпотентности вернул бы тот же отказ, а не пересчитал. ai-service только
+  возвращает request_id в callback — изменений на его стороне не требуется.
 * 429 ≠ ошибка: не инкрементит try_count, не открывает breaker.
 * `confidence < порога` (settings, дефолт 0.7) → evaluations "требует ревью" +
   кандидат на eval_thorough.

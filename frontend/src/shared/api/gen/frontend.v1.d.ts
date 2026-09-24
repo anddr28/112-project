@@ -232,7 +232,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** [admin][teacher] Список пользователей (преподавателю — только студенты своих групп) */
+        /** [admin][teacher] Список пользователей (преподавателю — обучающиеся его групп, участники его занятий и активные обучающиеся без группы: групп в API пока нет, а участников занятия выбирают отсюда) */
         get: operations["listUsers"];
         put?: never;
         /** [admin] Создать учётную запись (J-01) */
@@ -258,6 +258,23 @@ export interface paths {
         head?: never;
         /** [admin] Изменить роль/ФИО/службу/пароль (J-02, J-03) */
         patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/users/{userId}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher][student-сам] Прогресс обучающегося (v1.2): XP, уровень, статистика, история ошибок, рекомендации */
+        get: operations["userProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/users/{userId}/blocked": {
@@ -367,6 +384,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenarios/{scenarioId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [teacher] Новая версия сценария (v1.2): копия в статусе draft со ссылкой на родителя
+         * @description Родитель и занятия на нём не меняются. Номер версии — max по цепочке + 1. Эталон копируется как версия 1 нового сценария. Нужна, когда сценарий validated и уже используется в занятиях (PATCH отвечает 409).
+         */
+        post: operations["createScenarioVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenarios/{scenarioId}/tts-preview": {
         parameters: {
             query?: never;
@@ -425,7 +462,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** [teacher] Занятия преподавателя */
+        /** [teacher][admin] Занятия преподавателя (администратору — все), постранично */
         get: operations["listLessons"];
         put?: never;
         /** [teacher] Создать занятие (status=draft) */
@@ -443,7 +480,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** [student] Мои занятия с текущей попыткой (если выдана) */
+        /** [student] Мои занятия с текущей попыткой (если выдана), без отменённых; сверху — идущие */
         get: operations["assignedLessons"];
         put?: never;
         post?: never;
@@ -496,8 +533,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** [teacher] Завершить: незавершённые попытки -> expired, отчёт доступен */
+        /** [teacher] Завершить: незавершённые попытки -> expired, отчёт доступен (повтор — 200) */
         post: operations["finishLesson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lessons/{lessonId}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher] Отчёт по занятию (v1.2): CSV / Excel / PDF (ТЗ — выгрузка результатов) */
+        get: operations["lessonReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -565,7 +619,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** [student] Урезанная легенда: без keyFacts, эталона и брифа (GAP-11) */
+        /** [student] Урезанная легенда: без keyFacts, эталона и брифа (GAP-11); до accept-call turns = [] (легенду не читают до снятия трубки) */
         get: operations["studentCallScript"];
         put?: never;
         post?: never;
@@ -745,7 +799,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** [student] Положить трубку (разговор завершён, карточку можно дозаполнить) */
+        /** [student] Положить трубку (разговор завершён, карточку можно дозаполнить); повтор — 200 */
         post: operations["endDialogue"];
         delete?: never;
         options?: never;
@@ -884,6 +938,41 @@ export interface paths {
         /** [admin] Изменить настройку (value — jsonb; аудит) */
         put: operations["updateSetting"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [admin] Журнал аудита (v1.2), новые сверху; курсор — beforeId */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [admin] Журнал резервных копий (v1.2; ТЗ — не реже раза в сутки) */
+        get: operations["listBackups"];
+        put?: never;
+        /** [admin] Запустить резервное копирование сейчас (асинхронно) */
+        post: operations["runBackup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1316,6 +1405,17 @@ export interface components {
             etalonVersion: number;
             /** @description все реплики озвучены (кэш готов) */
             ttsReady?: boolean;
+            /** @description v1.2: номер версии сценария в цепочке (1 — исходный) */
+            version?: number;
+            /**
+             * Format: uuid
+             * @description v1.2: предыдущая версия (POST /scenarios/{id}/versions)
+             */
+            parentScenarioId?: string;
+            /** @description v1.2: сценарий стоит хотя бы в одном занятии — правка только новой версией */
+            inUse?: boolean;
+            /** @description v1.2: в скольких занятиях используется */
+            lessonsCount?: number;
         };
         CreateScenarioInput: {
             title: string;
@@ -1526,8 +1626,16 @@ export interface components {
             /** Format: date-time */
             at: string;
         };
-        AttemptEvent: components["schemas"]["AttemptEventInput"] & {
+        /** @description Событие хронологии. clientSeq = 0 — событие записал сервер (issued, call_accepted, dialogue_*, submitted …), у клиентских событий — clientSeq из AttemptEventInput (≥ 1). */
+        AttemptEvent: {
             id: number;
+            clientSeq: number;
+            type: components["schemas"]["AttemptEventType"];
+            payload?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            at: string;
         };
         AudioRef: {
             /** @description относительный URL для <audio>; авторизация по cookie */
@@ -1705,7 +1813,7 @@ export interface components {
             };
             needsReview: boolean;
             aiUnavailable: boolean;
-            /** @description модели/версии промптов, которыми считали (для QA и отчёта) */
+            /** @description модели/версии промптов, которыми считали (для QA и отчёта), camelCase: {rulesVersion, grammar: Engine, semantic: Engine, dialogue: Engine, errors: {<слой>: <код>}} */
             engine?: {
                 [key: string]: unknown;
             };
@@ -1720,6 +1828,60 @@ export interface components {
             };
             finalScore: number;
             xpEarned?: number;
+        };
+        /** @description v1.2: витрины student_progress / student_category_stats / student_field_errors + xp_ledger */
+        StudentProgress: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            xp: number;
+            level: {
+                no: number;
+                title: string;
+                badge?: string;
+                xpRequired?: number;
+                nextTitle?: string;
+                /** @description отсутствует на максимальном уровне */
+                nextXpRequired?: number;
+            };
+            attemptsDone: number;
+            avgScore?: number;
+            avgScore30d?: number;
+            passRatePct?: number;
+            avgTimeMs?: number;
+            withinNormCount?: number;
+            /** Format: date-time */
+            lastActivityAt?: string;
+            categories: {
+                categoryId: string;
+                categoryName: string;
+                attemptsDone: number;
+                avgScore?: number;
+                passRatePct?: number;
+                avgTimeMs?: number;
+                /** Format: date-time */
+                lastAttemptAt?: string;
+            }[];
+            fieldErrors: {
+                field: string;
+                label: string;
+                /** @enum {string} */
+                kind: "missing" | "wrong" | "extra";
+                count: number;
+            }[];
+            recommendations: components["schemas"]["Recommendation"][];
+            /** @description последние начисления, новые сверху (до 50) */
+            xpLog: {
+                delta: number;
+                /** @enum {string} */
+                reason: "attempt_evaluated" | "within_norm" | "pass_bonus" | "lesson_completed" | "streak" | "manual";
+                /** Format: date-time */
+                at: string;
+                /** Format: uuid */
+                attemptId?: string;
+                /** Format: uuid */
+                lessonId?: string;
+            }[];
         };
         TeacherFeedback: {
             /** Format: uuid */
@@ -1775,6 +1937,49 @@ export interface components {
             jobs?: {
                 [key: string]: number;
             };
+        };
+        AuditEntry: {
+            id: number;
+            /** Format: date-time */
+            at: string;
+            /** Format: uuid */
+            actorId?: string;
+            actorName?: string;
+            actorRole?: string;
+            /** @description user.login | scenario.approve | evaluation.override | … */
+            action: string;
+            entityType?: string;
+            /** Format: uuid */
+            entityId?: string;
+            /** Format: uuid */
+            lessonId?: string;
+            before?: {
+                [key: string]: unknown;
+            };
+            after?: {
+                [key: string]: unknown;
+            };
+            ip?: string;
+        };
+        Backup: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @enum {string} */
+            status: "running" | "done" | "failed";
+            filePath?: string;
+            /** Format: int64 */
+            sizeBytes?: number;
+            sha256?: string;
+            error?: string;
+            /**
+             * Format: uuid
+             * @description отсутствует — по расписанию
+             */
+            triggeredBy?: string;
         };
         Setting: {
             key: string;
@@ -1883,9 +2088,14 @@ export interface components {
         lessonId: string;
         attemptId: string;
         serviceId: string;
+        /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
+        cursor: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description v1.2: курсор следующей страницы (keyset, без OFFSET); заголовка нет — это последняя страница. Тело ответа — по-прежнему массив: клиент без пагинации получает первую страницу. */
+        NextCursor: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -2212,6 +2422,9 @@ export interface operations {
             query?: {
                 role?: components["schemas"]["Role"];
                 q?: string;
+                limit?: number;
+                /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path?: never;
@@ -2219,9 +2432,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description OK (страница; следующая — по X-Next-Cursor) */
             200: {
                 headers: {
+                    "X-Next-Cursor": components["headers"]["NextCursor"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2298,6 +2512,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    userProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["userId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentProgress"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     setUserBlocked: {
         parameters: {
             query?: never;
@@ -2335,6 +2574,9 @@ export interface operations {
                 status?: components["schemas"]["ScenarioStatus"];
                 categoryId?: string;
                 mode?: "cards" | "card_actions" | "both";
+                limit?: number;
+                /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path?: never;
@@ -2342,9 +2584,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description OK (страница, новые сверху; следующая — по X-Next-Cursor) */
             200: {
                 headers: {
+                    "X-Next-Cursor": components["headers"]["NextCursor"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2469,7 +2712,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Сценарий validated и используется в занятии — правка только копией */
+            /** @description Сценарий используется в занятиях — правка только новой версией (details.lessonsCount) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2533,6 +2776,40 @@ export interface operations {
         responses: {
             /** @description OK */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scenario"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Сценарий используется в занятиях или в архиве */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createScenarioVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenarioId: components["parameters"]["scenarioId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Создано */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2626,6 +2903,9 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["LessonStatus"];
+                limit?: number;
+                /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path?: never;
@@ -2633,9 +2913,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description OK (страница, новые сверху; следующая — по X-Next-Cursor) */
             200: {
                 headers: {
+                    "X-Next-Cursor": components["headers"]["NextCursor"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2684,16 +2965,21 @@ export interface operations {
     };
     assignedLessons: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
+                cursor?: components["parameters"]["cursor"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description OK (страница; следующая — по X-Next-Cursor) */
             200: {
                 headers: {
+                    "X-Next-Cursor": components["headers"]["NextCursor"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2785,6 +3071,45 @@ export interface operations {
                     "application/json": components["schemas"]["Lesson"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Занятие ещё не запущено или отменено */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    lessonReport: {
+        parameters: {
+            query: {
+                format: "csv" | "xlsx" | "pdf";
+            };
+            header?: never;
+            path: {
+                lessonId: components["parameters"]["lessonId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Файл отчёта (Content-Disposition attachment) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    "application/pdf": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -2957,7 +3282,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description Попытка уже завершена — черновик не принимается */
+            /** @description Попытка уже завершена или вызов ещё не принят — черновик не принимается */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3056,6 +3381,15 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Служба уже назначена / вызов не принят / попытка закрыта */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     removeAttemptService: {
@@ -3325,6 +3659,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description В занятии нет разговора / вызов не принят / попытка закрыта */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getTtsAudio: {
@@ -3576,6 +3919,91 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAudit: {
+        parameters: {
+            query?: {
+                actorId?: string;
+                /** @description точное имя или префикс с точкой: "user." */
+                action?: string;
+                entityType?: string;
+                entityId?: string;
+                from?: string;
+                to?: string;
+                beforeId?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listBackups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    runBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Запущено */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Копирование уже идёт */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     wsLessonMonitor: {
