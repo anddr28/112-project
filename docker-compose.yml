@@ -1,0 +1,107 @@
+# Тренажёр ДДС — локальный контур (всё офлайн, без облачных API).
+#
+#   docker compose --profile fake up -d --build     # go-core + PostgreSQL + имитатор ai-service (без Python/Ollama)
+#   docker compose -f docker-compose.yml -f ai-service/compose.ai.yaml up -d --build
+#                                                   # полный контур: реальный ai-service + ollama + languagetool
+#
+# SPA и API: https://localhost:8443 (самоподписанный сертификат контура; CA — volume tls, файл ca.crt —
+# установить в браузеры стенда: `docker compose cp go-core:/data/tls/ca.crt .`). HTTPS обязателен:
+# без secure context браузер не даёт микрофон.
+#
+# Бюджет ресурсов (docs/contracts.md): системная полоса PG + Go + Python — немного CPU и ~2 ГБ RAM,
+# остальное — Ollama/LanguageTool. На машине с 8 ядрами можно закрепить: postgres/go-core cpuset "0-1",
+# ollama/languagetool "2-7" (раскомментируйте cpuset ниже).
+
+name: lct112
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "20m", max-file: "5"}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lct
+      POSTGRES_USER: lct
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lct}
+      TZ: Europe/Moscow
+    # стартовые значения из docs/db-design.md §7, ужатые под ноутбук стенда (16 ГБ)
+    command: >
+      postgres
+      -c shared_buffers=1GB -c effective_cache_size=3GB -c random_page_cost=1.1
+      -c max_connections=100 -c max_wal_size=2GB -c checkpoint_completion_target=0.9
+      -c wal_compression=on -c synchronous_commit=on
+      -c autovacuum_vacuum_scale_factor=0.05
+      -c shared_preload_libraries=pg_stat_statements
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lct -d lct"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # cpuset: "0-1"
+    logging: *logging
+
+  go-core:
+    build:
+      context: .
+      dockerfile: go-core/Dockerfile
+      target: go-core
+      args:
+        VERSION: ${GOCORE_VERSION:-dev}
+    image: lct112/go-core:${GOCORE_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgres://lct:${POSTGRES_PASSWORD:-lct}@postgres:5432/lct?sslmode=disable
+      AI_SERVICE_URL: http://ai-service:8000
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token}
+      GOCORE_DEMO_MODE: ${GOCORE_DEMO_MODE:-true}
+      GOCORE_SEED: "true"
+      GOCORE_AUTO_MIGRATE: "true"
+      GOCORE_COOKIE_SECURE: "true"
+      GOCORE_TLS_HOSTS: ${GOCORE_TLS_HOSTS:-localhost,127.0.0.1,go-core}
+      GOCORE_LOG_LEVEL: ${GOCORE_LOG_LEVEL:-info}
+      # стабильный id инстанса: свои зависшие AI-задачи переотправляются сразу после рестарта
+      GOCORE_INSTANCE_ID: go-core
+    ports:
+      - "${GOCORE_HTTPS_PORT:-8443}:8443"   # браузеры (SPA + API + WS)
+      - "127.0.0.1:${GOCORE_HTTP_PORT:-8080}:8080"   # healthz/metrics/отладка — только локально
+    volumes:
+      - tts_cache:/data/tts
+      - backups:/data/backups
+      - tls:/data/tls
+    # cpuset: "0-1"
+    logging: *logging
+
+  # Имитатор ai-service по контракту (cmd/fakeai): стенд без Python/Ollama. Сетевой псевдоним
+  # ai-service — go-core не знает, с кем говорит. Не поднимать вместе с реальным ai-service.
+  fakeai:
+    profiles: ["fake"]
+    build:
+      context: .
+      dockerfile: go-core/Dockerfile
+      target: fakeai
+    image: lct112/fakeai:${GOCORE_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token}
+      GOCORE_CALLBACK_URL: http://go-core:8080/internal/ai/v1/results
+      TTS_DIR: /data/tts
+      FAKEAI_SPEED: ${FAKEAI_SPEED:-1}
+    volumes:
+      - tts_cache:/data/tts
+    networks:
+      default:
+        aliases: [ai-service]
+    logging: *logging
+
+volumes:
+  pgdata:
+  tts_cache:
+  backups:
+  tls:

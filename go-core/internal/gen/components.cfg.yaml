@@ -1,0 +1,7 @@
+# oapi-codegen: общие схемы contracts/openapi/_components.yaml (пути нет — pruning отключён)
+package: components
+generate:
+  models: true
+output: internal/gen/components/types.gen.go
+output-options:
+  skip-prune: true

@@ -1,0 +1,837 @@
+{
+ "_comment": "Демо-сценарии: дословный перенос frontend/src/shared/mocks/fixtures/scenarios.ts (+ бриф и чек-лист из fixtures/dialogue.ts), выгружено node из самих фикстур. Формы — camelCase публичного контракта (Scenario). categoryId/incidentTypeIds — id фикстур классификатора (it-*), при сиде переводятся в uuid БД; categoryCode — код классификатора.",
+ "scenarios": [
+  {
+   "fixtureId": "sc-fire-apartment",
+   "title": "Пожар в квартире многоквартирного дома",
+   "categoryId": "it-101",
+   "difficulty": 2,
+   "mode": "cards",
+   "source": "generated",
+   "status": "validated",
+   "createdAt": "2026-09-15T09:12:00+03:00",
+   "validatedAt": "2026-09-15T10:40:00+03:00",
+   "notesForTeacher": "Проверить, что студент зафиксировал угрозу людям и газовую колонку — от этого зависит состав служб.",
+   "callScript": {
+    "dialogue": {
+     "persona": "Мария, соседка с четвёртого этажа, звонит с лестничной площадки",
+     "speakingStyle": "Говорит сбивчиво, перебивает себя, повторяет просьбы поторопиться",
+     "facts": [
+      {
+       "id": "address",
+       "text": "Тверская улица, дом 12, подъезд 3",
+       "reveal": "volunteer",
+       "hints": [
+        "адрес",
+        "где",
+        "улица",
+        "дом"
+       ]
+      },
+      {
+       "id": "floor",
+       "text": "Горит квартира на пятом этаже, напротив её квартиры",
+       "reveal": "on_request",
+       "hints": [
+        "этаж",
+        "квартира",
+        "какой"
+       ]
+      },
+      {
+       "id": "people",
+       "text": "В горящей квартире может быть пожилой сосед",
+       "reveal": "on_request",
+       "hints": [
+        "люди",
+        "кто-нибудь",
+        "пострадав",
+        "внутри"
+       ]
+      },
+      {
+       "id": "smoke",
+       "text": "Из-под двери валит чёрный дым, открытого пламени не видно",
+       "reveal": "on_request",
+       "hints": [
+        "пламя",
+        "огонь",
+        "дым",
+        "горит"
+       ]
+      },
+      {
+       "id": "gas",
+       "text": "В доме газовые колонки",
+       "reveal": "on_request",
+       "hints": [
+        "газ",
+        "колонк"
+       ]
+      },
+      {
+       "id": "phone",
+       "text": "Её номер — тот, с которого звонит",
+       "reveal": "on_request",
+       "hints": [
+        "телефон",
+        "номер",
+        "связ"
+       ]
+      }
+     ],
+     "unknowns": [
+      "Причина возгорания",
+      "Фамилия соседа из горящей квартиры"
+     ],
+     "endConditions": [
+      "Оператор сообщил, что помощь направлена"
+     ],
+     "maxTurns": 12
+    },
+    "caller": {
+     "name": "Мария",
+     "phone": "+7 (903) 511-33-67",
+     "role": "соседка",
+     "emotionalState": "паника"
+    },
+    "address": {
+     "raw": "Москва, Тверская улица, 12, подъезд 3",
+     "city": "Москва",
+     "street": "Тверская",
+     "house": "12",
+     "entrance": "3"
+    },
+    "keyFacts": [
+     "дым из квартиры на 5 этаже",
+     "подъезд 3",
+     "в квартире может находиться пожилой человек",
+     "в доме газовые колонки"
+    ],
+    "turns": [
+     {
+      "speaker": "caller",
+      "text": "Алло! Помогите, у нас дым идёт из квартиры! Тверская, дом двенадцать, третий подъезд!"
+     },
+     {
+      "speaker": "operator_hint",
+      "text": "Уточните этаж и что именно горит."
+     },
+     {
+      "speaker": "caller",
+      "text": "Пятый этаж, квартира напротив моей. Из-под двери валит чёрный дым, на площадке уже не продохнуть."
+     },
+     {
+      "speaker": "caller",
+      "text": "Там бабушка живёт, одна. Я стучу — не открывает. Кажется, она дома, утром её видела."
+     },
+     {
+      "speaker": "operator_hint",
+      "text": "Уточните, газифицирован ли дом."
+     },
+     {
+      "speaker": "caller",
+      "text": "Да, у нас газовые колонки во всех квартирах. Дом старый, пятиэтажка."
+     },
+     {
+      "speaker": "caller",
+      "text": "Пожалуйста, быстрее! Соседи уже выходят на улицу!"
+     }
+    ]
+   },
+   "etalonCard": {
+    "categoryCode": "101",
+    "address": {
+     "raw": "Москва, Тверская улица, 12",
+     "city": "Москва",
+     "street": "Тверская",
+     "house": "12",
+     "entrance": "3",
+     "floor": "5"
+    },
+    "applicant": {
+     "name": "Мария",
+     "phone": "+7 (903) 511-33-67"
+    },
+    "casualties": {
+     "trapped": 1
+    },
+    "servicesToNotify": [
+     "101",
+     "103",
+     "104",
+     "zhkh",
+     "cemp"
+    ],
+    "description": "Задымление в квартире на 5 этаже многоквартирного дома, подъезд 3. В квартире предположительно находится пожилой человек, дверь не открывает. Дом газифицирован."
+   },
+   "etalonDraft": {
+    "phones": {
+     "aon": "+7 (903) 511-33-67"
+    },
+    "applicant": {
+     "name": "Мария",
+     "status": "очевидец",
+     "foreignLanguage": false
+    },
+    "address": {
+     "raw": "Москва, Тверская улица, 12",
+     "country": "Россия",
+     "region": "Москва",
+     "settlement": "Москва",
+     "object": "",
+     "okrug": "ЦАО",
+     "district": "Тверской",
+     "street": "Тверская",
+     "house": "12",
+     "building": "",
+     "structure": "",
+     "apartment": "",
+     "entrance": "3",
+     "floor": "5",
+     "code": "",
+     "descriptive": "",
+     "source": "yandex_map"
+    },
+    "incidentTypeIds": [
+     "it-101"
+    ],
+    "attributes": {
+     "where": "house",
+     "fire_sign": "flame",
+     "house_kind": "multi",
+     "floors": 5,
+     "people_threat": "yes",
+     "indoor_objects": [
+      "apartment",
+      "gas_column"
+     ],
+     "gasified": "yes"
+    },
+    "description": "Задымление в квартире на 5 этаже многоквартирного дома, подъезд 3. В квартире предположительно находится пожилой человек, дверь не открывает. Дом газифицирован.",
+    "actionsTaken": "",
+    "flags": {
+     "victimsPresent": true,
+     "victimsCount": 1,
+     "ambulanceRefusal": false,
+     "blocked": true,
+     "noContact": false,
+     "callDropped": false
+    },
+    "services": []
+   },
+   "requiredFields": [
+    "applicant.name",
+    "applicant.status",
+    "address.raw",
+    "incidentTypeIds",
+    "description",
+    "flags.victimsPresent",
+    "attributes.where",
+    "attributes.fire_sign",
+    "attributes.people_threat"
+   ],
+   "expectedDialogue": {
+    "checklist": [
+     {
+      "id": "chk-address",
+      "text": "Уточнить адрес происшествия",
+      "kind": "question",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "адрес",
+       "улица",
+       "дом",
+       "подъезд"
+      ]
+     },
+     {
+      "id": "chk-what",
+      "text": "Выяснить, что именно горит и есть ли открытое пламя",
+      "kind": "question",
+      "required": true,
+      "weight": 1.5,
+      "hints": [
+       "горит",
+       "пламя",
+       "дым"
+      ]
+     },
+     {
+      "id": "chk-people",
+      "text": "Спросить, есть ли люди в опасности",
+      "kind": "question",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "люди",
+       "пострадав",
+       "кто-нибудь"
+      ]
+     },
+     {
+      "id": "chk-phone",
+      "text": "Уточнить контактный телефон заявителя",
+      "kind": "question",
+      "required": false,
+      "weight": 1,
+      "hints": [
+       "телефон",
+       "номер"
+      ]
+     },
+     {
+      "id": "chk-help",
+      "text": "Сообщить, что помощь направлена",
+      "kind": "phrase",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "направлен",
+       "выезжа",
+       "пожарн",
+       "едут"
+      ]
+     },
+     {
+      "id": "chk-calm",
+      "text": "Дать указание по безопасности (не входить в задымление, выйти на улицу)",
+      "kind": "instruction",
+      "required": false,
+      "weight": 1,
+      "hints": [
+       "выйдите",
+       "не входите",
+       "покиньте",
+       "на улицу"
+      ]
+     }
+    ],
+    "forbidden": [
+     "успокойтесь",
+     "я не знаю",
+     "перезвоните"
+    ],
+    "maxOperatorTurns": 12
+   },
+   "categoryCode": "101"
+  },
+  {
+   "fixtureId": "sc-gas-smell",
+   "title": "Запах газа в подъезде жилого дома",
+   "categoryId": "it-104",
+   "difficulty": 1,
+   "mode": "cards",
+   "source": "generated",
+   "status": "validated",
+   "createdAt": "2026-09-16T11:00:00+03:00",
+   "validatedAt": "2026-09-16T11:35:00+03:00",
+   "callScript": {
+    "dialogue": {
+     "persona": "Виктор Степанович, житель дома, звонит с лестницы",
+     "speakingStyle": "Говорит рассудительно, но встревожен, отвечает по существу",
+     "facts": [
+      {
+       "id": "address",
+       "text": "Профсоюзная улица, дом 45, корпус 2",
+       "reveal": "volunteer",
+       "hints": [
+        "адрес",
+        "где",
+        "улица",
+        "дом"
+       ]
+      },
+      {
+       "id": "where",
+       "text": "Запах сильнее всего у квартиры на первом этаже",
+       "reveal": "on_request",
+       "hints": [
+        "где пахнет",
+        "этаж",
+        "квартира",
+        "сильнее"
+       ]
+      },
+      {
+       "id": "people",
+       "text": "В подъезде соседи, кто-то открыл окна",
+       "reveal": "on_request",
+       "hints": [
+        "люди",
+        "соседи",
+        "кто-нибудь"
+       ]
+      },
+      {
+       "id": "health",
+       "text": "Никому не плохо, пострадавших нет",
+       "reveal": "on_request",
+       "hints": [
+        "плохо",
+        "пострадав",
+        "самочувств"
+       ]
+      },
+      {
+       "id": "phone",
+       "text": "Номер тот же, с которого звонит",
+       "reveal": "on_request",
+       "hints": [
+        "телефон",
+        "номер"
+       ]
+      }
+     ],
+     "unknowns": [
+      "Откуда именно утечка",
+      "Вызывали ли газовую службу соседи"
+     ],
+     "endConditions": [
+      "Оператор сообщил, что аварийная служба направлена"
+     ],
+     "maxTurns": 10
+    },
+    "caller": {
+     "name": "Виктор Степанович",
+     "phone": "+7 (915) 244-08-91",
+     "role": "житель",
+     "emotionalState": "встревожен"
+    },
+    "address": {
+     "raw": "Москва, Профсоюзная улица, 45, корпус 2",
+     "city": "Москва",
+     "street": "Профсоюзная",
+     "house": "45"
+    },
+    "keyFacts": [
+     "сильный запах газа в подъезде",
+     "второй этаж",
+     "жильцы на месте",
+     "источник неизвестен"
+    ],
+    "turns": [
+     {
+      "speaker": "caller",
+      "text": "Здравствуйте. У нас в подъезде очень сильно пахнет газом. Профсоюзная, сорок пять, корпус два."
+     },
+     {
+      "speaker": "operator_hint",
+      "text": "Уточните этаж и где сильнее всего чувствуется запах."
+     },
+     {
+      "speaker": "caller",
+      "text": "Сильнее всего на втором этаже, у лифта. Я поднимался — там прямо невозможно дышать."
+     },
+     {
+      "speaker": "caller",
+      "text": "Откуда идёт — не понимаю. Может, из квартиры какой-то. Люди дома, я слышу."
+     },
+     {
+      "speaker": "caller",
+      "text": "Свет я не включал, как учили. Окно на площадке открыл."
+     }
+    ]
+   },
+   "etalonCard": {
+    "categoryCode": "104",
+    "address": {
+     "raw": "Москва, Профсоюзная улица, 45, корпус 2",
+     "city": "Москва",
+     "street": "Профсоюзная",
+     "house": "45",
+     "floor": "2"
+    },
+    "applicant": {
+     "name": "Виктор Степанович",
+     "phone": "+7 (915) 244-08-91"
+    },
+    "servicesToNotify": [
+     "104",
+     "101",
+     "103",
+     "zhkh"
+    ],
+    "description": "Сильный запах газа в подъезде жилого дома на 2 этаже. Источник не установлен. В доме находятся жильцы."
+   },
+   "etalonDraft": {
+    "phones": {
+     "aon": "+7 (915) 244-08-91"
+    },
+    "applicant": {
+     "name": "Виктор Степанович",
+     "status": "очевидец",
+     "foreignLanguage": false
+    },
+    "address": {
+     "raw": "Москва, Профсоюзная улица, 45, корпус 2",
+     "country": "Россия",
+     "region": "Москва",
+     "settlement": "Москва",
+     "object": "",
+     "okrug": "ЮЗАО",
+     "district": "Черёмушки",
+     "street": "Профсоюзная",
+     "house": "45",
+     "building": "2",
+     "structure": "",
+     "apartment": "",
+     "entrance": "",
+     "floor": "2",
+     "code": "",
+     "descriptive": "",
+     "source": "yandex_map"
+    },
+    "incidentTypeIds": [
+     "it-104"
+    ],
+    "attributes": {
+     "gas_sign": [
+      "indoor"
+     ],
+     "people_threat": "yes"
+    },
+    "description": "Сильный запах газа в подъезде жилого дома на 2 этаже. Источник не установлен. В доме находятся жильцы.",
+    "actionsTaken": "",
+    "flags": {
+     "victimsPresent": false,
+     "ambulanceRefusal": false,
+     "blocked": false,
+     "noContact": false,
+     "callDropped": false
+    },
+    "services": []
+   },
+   "requiredFields": [
+    "applicant.name",
+    "applicant.status",
+    "address.raw",
+    "incidentTypeIds",
+    "description",
+    "attributes.gas_sign",
+    "attributes.people_threat"
+   ],
+   "expectedDialogue": {
+    "checklist": [
+     {
+      "id": "chk-address",
+      "text": "Уточнить адрес происшествия",
+      "kind": "question",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "адрес",
+       "улица",
+       "дом"
+      ]
+     },
+     {
+      "id": "chk-where",
+      "text": "Выяснить, где сильнее запах",
+      "kind": "question",
+      "required": true,
+      "weight": 1.5,
+      "hints": [
+       "где",
+       "этаж",
+       "сильнее"
+      ]
+     },
+     {
+      "id": "chk-people",
+      "text": "Спросить о самочувствии людей",
+      "kind": "question",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "плохо",
+       "пострадав",
+       "самочувств",
+       "люди"
+      ]
+     },
+     {
+      "id": "chk-safety",
+      "text": "Предупредить: не пользоваться огнём и электроприборами, проветрить",
+      "kind": "instruction",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "не включайте",
+       "не курите",
+       "проветр",
+       "окна"
+      ]
+     },
+     {
+      "id": "chk-help",
+      "text": "Сообщить, что аварийная служба направлена",
+      "kind": "phrase",
+      "required": true,
+      "weight": 2,
+      "hints": [
+       "направлен",
+       "выезжа",
+       "аварийн",
+       "едут"
+      ]
+     }
+    ],
+    "forbidden": [
+     "успокойтесь",
+     "ничего страшного"
+    ],
+    "maxOperatorTurns": 10
+   },
+   "categoryCode": "104"
+  },
+  {
+   "fixtureId": "sc-water-pipe",
+   "title": "Прорыв трубы с горячей водой во дворе",
+   "categoryId": "it-water",
+   "difficulty": 1,
+   "mode": "cards",
+   "source": "manual",
+   "status": "validated",
+   "createdAt": "2026-09-16T14:20:00+03:00",
+   "validatedAt": "2026-09-16T14:50:00+03:00",
+   "callScript": {
+    "caller": {
+     "name": "Анна",
+     "phone": "+7 (926) 700-11-42",
+     "role": "очевидец",
+     "emotionalState": "спокоен"
+    },
+    "address": {
+     "raw": "Москва, Чертановская улица, 58, корпус 2",
+     "city": "Москва",
+     "street": "Чертановская",
+     "house": "58"
+    },
+    "keyFacts": [
+     "прорыв трубы с горячей водой",
+     "двор",
+     "заливает проезд",
+     "пострадавших нет"
+    ],
+    "turns": [
+     {
+      "speaker": "caller",
+      "text": "Добрый день. У нас во дворе прорвало трубу, идёт пар и горячая вода. Чертановская, пятьдесят восемь, корпус два."
+     },
+     {
+      "speaker": "operator_hint",
+      "text": "Уточните, заливает ли проезд и есть ли пострадавшие."
+     },
+     {
+      "speaker": "caller",
+      "text": "Заливает весь проезд, машины не проедут. Вода горячая, парит сильно."
+     },
+     {
+      "speaker": "caller",
+      "text": "Людей рядом нет, никто не пострадал. Дети во двор не выходят, я предупредила."
+     }
+    ]
+   },
+   "etalonCard": {
+    "categoryCode": "water",
+    "address": {
+     "raw": "Москва, Чертановская улица, 58, корпус 2",
+     "city": "Москва",
+     "street": "Чертановская",
+     "house": "58"
+    },
+    "applicant": {
+     "name": "Анна",
+     "phone": "+7 (926) 700-11-42"
+    },
+    "servicesToNotify": [
+     "vodokanal",
+     "zhkh",
+     "mosvodostok",
+     "oati"
+    ],
+    "description": "Прорыв трубы с горячей водой во дворе дома, заливает внутридворовой проезд. Пострадавших нет."
+   },
+   "etalonDraft": {
+    "phones": {
+     "aon": "+7 (926) 700-11-42"
+    },
+    "applicant": {
+     "name": "Анна",
+     "status": "очевидец",
+     "foreignLanguage": false
+    },
+    "address": {
+     "raw": "Москва, Чертановская улица, 58, корпус 2",
+     "country": "Россия",
+     "region": "Москва",
+     "settlement": "Москва",
+     "object": "",
+     "okrug": "ЮАО",
+     "district": "Чертаново Южное",
+     "street": "Чертановская",
+     "house": "58",
+     "building": "2",
+     "structure": "",
+     "apartment": "",
+     "entrance": "",
+     "floor": "",
+     "code": "",
+     "descriptive": "",
+     "source": "yandex_map"
+    },
+    "incidentTypeIds": [
+     "it-water"
+    ],
+    "attributes": {
+     "water_where": "yard",
+     "water_type": "hot",
+     "people_threat": "no"
+    },
+    "description": "Прорыв трубы с горячей водой во дворе дома, заливает внутридворовой проезд. Пострадавших нет.",
+    "actionsTaken": "",
+    "flags": {
+     "victimsPresent": false,
+     "ambulanceRefusal": false,
+     "blocked": false,
+     "noContact": false,
+     "callDropped": false
+    },
+    "services": []
+   },
+   "requiredFields": [
+    "applicant.name",
+    "applicant.status",
+    "address.raw",
+    "incidentTypeIds",
+    "description",
+    "attributes.water_where"
+   ],
+   "categoryCode": "water"
+  },
+  {
+   "fixtureId": "sc-dtp-draft",
+   "title": "ДТП с пострадавшими на перекрёстке",
+   "categoryId": "it-dtp",
+   "difficulty": 3,
+   "mode": "cards",
+   "source": "generated",
+   "status": "generated",
+   "createdAt": "2026-09-17T08:05:00+03:00",
+   "notesForTeacher": "Сгенерировано нейросетью, требует проверки: уточнить количество пострадавших в легенде.",
+   "callScript": {
+    "caller": {
+     "name": "Неизвестен",
+     "phone": "+7 (985) 330-77-10",
+     "role": "очевидец",
+     "emotionalState": "взволнован"
+    },
+    "address": {
+     "raw": "Москва, Ленинский проспект, 32",
+     "city": "Москва",
+     "street": "Ленинский проспект",
+     "house": "32"
+    },
+    "keyFacts": [
+     "столкновение двух автомобилей",
+     "двое пострадавших",
+     "перекрыта полоса движения"
+    ],
+    "turns": [
+     {
+      "speaker": "caller",
+      "text": "Тут авария, две машины столкнулись! Ленинский проспект, дом тридцать два!"
+     },
+     {
+      "speaker": "caller",
+      "text": "Есть пострадавшие, двое точно. Один за рулём не двигается совсем."
+     },
+     {
+      "speaker": "caller",
+      "text": "Одна полоса перекрыта, пробка собирается."
+     }
+    ]
+   },
+   "etalonCard": {
+    "categoryCode": "dtp",
+    "address": {
+     "raw": "Москва, Ленинский проспект, 32",
+     "city": "Москва",
+     "street": "Ленинский проспект",
+     "house": "32"
+    },
+    "applicant": {
+     "phone": "+7 (985) 330-77-10"
+    },
+    "casualties": {
+     "injured": 2
+    },
+    "servicesToNotify": [
+     "102",
+     "103",
+     "codd"
+    ],
+    "description": "Столкновение двух автомобилей на Ленинском проспекте. Двое пострадавших, один без движения. Перекрыта одна полоса движения."
+   },
+   "etalonDraft": {
+    "phones": {
+     "aon": "+7 (985) 330-77-10"
+    },
+    "applicant": {
+     "status": "очевидец",
+     "foreignLanguage": false
+    },
+    "address": {
+     "raw": "Москва, Ленинский проспект, 32",
+     "country": "Россия",
+     "region": "Москва",
+     "settlement": "Москва",
+     "object": "",
+     "okrug": "ЮЗАО",
+     "district": "Гагаринский",
+     "street": "Ленинский проспект",
+     "house": "32",
+     "building": "",
+     "structure": "",
+     "apartment": "",
+     "entrance": "",
+     "floor": "",
+     "code": "",
+     "descriptive": "",
+     "source": "yandex_map"
+    },
+    "incidentTypeIds": [
+     "it-dtp"
+    ],
+    "attributes": {
+     "dtp_kind": "collision",
+     "victims": "yes",
+     "traffic_block": "yes"
+    },
+    "description": "Столкновение двух автомобилей на Ленинском проспекте. Двое пострадавших, один без движения. Перекрыта одна полоса движения.",
+    "actionsTaken": "",
+    "flags": {
+     "victimsPresent": true,
+     "victimsCount": 2,
+     "ambulanceRefusal": false,
+     "blocked": false,
+     "noContact": false,
+     "callDropped": false
+    },
+    "services": []
+   },
+   "requiredFields": [
+    "applicant.status",
+    "address.raw",
+    "incidentTypeIds",
+    "description",
+    "flags.victimsPresent",
+    "attributes.dtp_kind",
+    "attributes.victims"
+   ],
+   "categoryCode": "dtp"
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+# oapi-codegen: публичный API для SPA (contracts/openapi/frontend.v1.yaml) — только типы;
+# маршруты регистрирует go-core вручную (internal/app/routes.go), покрытие проверяет тест.
+package: public
+generate:
+  models: true
+output: internal/gen/public/types.gen.go
+output-options:
+  skip-prune: true

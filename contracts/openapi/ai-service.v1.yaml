@@ -435,7 +435,10 @@ components:
         request_id:
           type: string
           format: uuid
-          description: '= ai_jobs.id; ключ идемпотентности и корреляции логов'
+          description: >
+            id отправки задачи: = ai_jobs.id; если задача отправляется повторно после
+            failed-результата — новый id (go-core сопоставляет его с задачей сам). Ключ
+            идемпотентности и корреляции логов; ai-service только возвращает его в callback.
         priority:
           type: integer
           minimum: 1

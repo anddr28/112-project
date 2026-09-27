@@ -10,4 +10,11 @@ ai-service/models/
 ai-service/bench/data/stt/audio/
 ai-service/bench/data/noise/
 # данные volume'ов при локальном запуске
-data/
+/data/
+go-core/bin/
+go-core/data/
+# артефакты сборки go-core (go build в корне модуля) и кэш Python
+go-core/gocore
+go-core/fakeai
+go-core/wscheck
+__pycache__/
