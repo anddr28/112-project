@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
+import { isApiError } from '../../shared/api/error';
 import { Badge, Card, ErrorState, Field, LessonStatusBadge, Loading, Modal, NumberInput } from '../../components/ui';
 import { formatDate } from '../../shared/utils/time';
 import { shortName } from '../../shared/utils/user';
@@ -108,6 +109,8 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Сценарии и участники, на которые указал сервер в отказе (details) — подсвечиваются. */
+  const [rejected, setRejected] = useState<string[]>([]);
 
   const allScenarios = scenarios.data ?? [];
   // Только подтверждённые; версии одного сценария — рядом и с номером.
@@ -133,7 +136,13 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
       }
     : null;
   const pctValues = weightPct ?? defaultPct;
-  const voiceOn = voiceSettings?.enabled ?? false;
+  /*
+   * Ракурс «Диспетчер ДДС» (v1.3): карточка поступает от оператора 112, звонка
+   * нет — занятие только в режиме «Действия с карточками», голос и
+   * переспрашивание не применяются, разговор не оценивается.
+   */
+  const isDds = perspective === 'dds';
+  const voiceOn = !isDds && (voiceSettings?.enabled ?? false);
 
   /** Вес разговора учитывается только при включённом голосе. */
   const effectivePct: WeightPct | null = pctValues
@@ -181,18 +190,19 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
     }
     setBusy(true);
     setError(null);
+    setRejected([]);
     try {
       const lesson = await api.lessons.create({
         title: title || 'Практическое занятие',
-        mode: 'cards',
+        mode: isDds ? 'card_actions' : 'cards',
         perspective,
         difficulty: difficulty === 0 ? undefined : difficulty,
         timeLimitSec,
         scenarioIds,
         participantIds,
         passThreshold: threshold ?? 0,
-        allowReplay,
-        voice: voiceSettings,
+        allowReplay: isDds ? false : allowReplay,
+        voice: isDds ? { ...voiceSettings, enabled: false } : voiceSettings,
         weights: {
           fields: effectivePct.fields / 100,
           semantic: effectivePct.semantic / 100,
@@ -205,6 +215,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
       navigate(`/teacher/lessons/${lesson.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось создать занятие');
+      if (isApiError(e)) setRejected([...idList(e.details?.scenarioIds), ...idList(e.details?.participantIds)]);
       setBusy(false);
     }
   }
@@ -235,11 +246,15 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
         <div className="grid grid--3">
           <Field
             label="Рабочее место"
-            hint="Определяет интерфейс обучающегося. Рабочее место диспетчера ДДС в этой версии не реализовано."
+            hint={
+              isDds
+                ? 'Обучающийся получает карточку от оператора 112 и работает за службу своего профиля. Режим — «Действия с карточками», без голоса.'
+                : 'Определяет интерфейс обучающегося.'
+            }
           >
             <select className="select" value={perspective} onChange={(e) => setPerspective(e.target.value as ArmPerspective)}>
               <option value="operator112">Оператор-112 — заполнение карточки</option>
-              <option value="dds" disabled>Диспетчер ДДС — статусы реагирования (недоступно)</option>
+              <option value="dds">Диспетчер ДДС — приём карточки и статусы реагирования</option>
             </select>
           </Field>
 
@@ -252,7 +267,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
             </select>
           </Field>
 
-          <Field label="Норматив заполнения, с" hint="По умолчанию 30 с">
+          <Field label={isDds ? 'Норматив работы с карточкой, с' : 'Норматив заполнения, с'} hint="По умолчанию 30 с">
             <NumberInput min={10} max={600} value={timeLimitSec} onChange={setTimeLimitSec} />
           </Field>
         </div>
@@ -262,24 +277,28 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
             <NumberInput min={0} max={100} value={threshold} onChange={setPassThreshold} />
           </Field>
 
-          <Field label="Переспрашивание заявителя">
-            <select className="select" value={allowReplay ? 'yes' : 'no'} onChange={(e) => setAllowReplay(e.target.value === 'yes')}>
-              <option value="yes">Разрешено</option>
-              <option value="no">Запрещено</option>
-            </select>
-          </Field>
+          {!isDds && (
+            <Field label="Переспрашивание заявителя">
+              <select className="select" value={allowReplay ? 'yes' : 'no'} onChange={(e) => setAllowReplay(e.target.value === 'yes')}>
+                <option value="yes">Разрешено</option>
+                <option value="no">Запрещено</option>
+              </select>
+            </Field>
+          )}
 
-          <Field label="Голосовой режим" hint="Разговор с ИИ-заявителем вместо сценарных реплик">
-            <select
-              className="select"
-              value={voiceOn ? 'on' : 'off'}
-              disabled={!voiceSettings}
-              onChange={(e) => patchVoice({ enabled: e.target.value === 'on' })}
-            >
-              <option value="off">Выключен</option>
-              <option value="on">Включён</option>
-            </select>
-          </Field>
+          {!isDds && (
+            <Field label="Голосовой режим" hint="Разговор с ИИ-заявителем вместо сценарных реплик">
+              <select
+                className="select"
+                value={voiceOn ? 'on' : 'off'}
+                disabled={!voiceSettings}
+                onChange={(e) => patchVoice({ enabled: e.target.value === 'on' })}
+              >
+                <option value="off">Выключен</option>
+                <option value="on">Включён</option>
+              </select>
+            </Field>
+          )}
         </div>
 
         {voiceOn && voiceSettings && (
@@ -340,9 +359,11 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
             })}
           </div>
           <p className="field__hint" style={{ marginTop: 6 }}>
-            {voiceOn
-              ? 'Балл считается по этим долям и показывается обучающемуся в результате.'
-              : 'Без голосового режима разговор не оценивается: его доля равна нулю.'}
+            {isDds
+              ? '«Поля карточки» в ракурсе ДДС — протокол реагирования: решение, время решения, статусы. Смысл и грамотность — по тексту действия.'
+              : voiceOn
+                ? 'Балл считается по этим долям и показывается обучающемуся в результате.'
+                : 'Без голосового режима разговор не оценивается: его доля равна нулю.'}
           </p>
         </div>
 
@@ -357,7 +378,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
           ) : (
             <div className="stack" style={{ gap: 6 }}>
               {validated.map(({ scenario: s, grouped }) => (
-                <label key={s.id} className="row" style={{ padding: '7px 10px', border: '1px solid var(--u-border)', borderRadius: 4, cursor: 'pointer' }}>
+                <label key={s.id} className="row" style={{ padding: '7px 10px', border: `1px solid ${rejected.includes(s.id) ? 'var(--u-danger)' : 'var(--u-border)'}`, borderRadius: 4, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={scenarioIds.includes(s.id)}
@@ -383,7 +404,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
           ) : (
             <div className="stack" style={{ gap: 6 }}>
               {learners.map((u) => (
-                <label key={u.id} className="row" style={{ padding: '7px 10px', border: '1px solid var(--u-border)', borderRadius: 4, cursor: 'pointer' }}>
+                <label key={u.id} className="row" style={{ padding: '7px 10px', border: `1px solid ${rejected.includes(u.id) ? 'var(--u-danger)' : 'var(--u-border)'}`, borderRadius: 4, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={participantIds.includes(u.id)}
@@ -401,4 +422,9 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
       </div>
     </Modal>
   );
+}
+
+/** Идентификаторы из details отказа сервера (scenarioIds / participantIds). */
+function idList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }

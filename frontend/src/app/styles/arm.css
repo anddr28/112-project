@@ -994,3 +994,73 @@
 .arm-autosave__dot--saving { background: var(--arm-orange); }
 .arm-autosave__dot--saved { background: #1f6b45; }
 .arm-autosave__dot--error { background: var(--arm-red); }
+
+/* ───────────────────────────────────────── рабочее место диспетчера ДДС (v1.3) */
+
+/*
+ * Ракурс «Диспетчер ДДС»: карточку создал оператор 112, диспетчер её читает,
+ * ставит статусы своей службы и пишет текст действия. Строка поступившей
+ * карточки повторяет «Список происшествий» ПОВ-112 (mockups/pov112-main-cards.png)
+ * — тёмная табличная строка с линиями «Службы / Заявитель / Информация».
+ */
+.arm--dds { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+
+.arm--dds .arm-top { grid-template-columns: minmax(280px, 1fr) auto; }
+
+.dds-role { display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+.dds-role__title { font-size: 13px; font-weight: 700; }
+.dds-role__service { font-size: var(--arm-fs); color: var(--arm-text); }
+
+.dds-row {
+  margin: 8px 8px 0;
+  background: var(--dds-row);
+  border: 1px solid var(--dds-border);
+  color: var(--dds-text);
+  font-size: var(--arm-fs);
+}
+
+.dds-row__head {
+  display: grid;
+  grid-template-columns: 110px 100px 66px minmax(160px, 1.4fr) 150px 150px minmax(200px, 2fr);
+  background: var(--dds-panel);
+  border-bottom: 1px solid var(--dds-border);
+}
+
+.dds-row__cell {
+  padding: 5px 8px;
+  border-right: 1px solid var(--dds-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dds-row__cell:last-child { border-right: none; }
+.dds-row__cell--num { font-weight: 700; }
+.dds-row__time { font-weight: 600; }
+.dds-row__type { font-weight: 600; }
+/* Памятка ДДС: карточка без решения службы — красная ячейка статуса */
+.dds-row__cell--warn { background: var(--arm-red); color: #fff; font-weight: 600; }
+
+.dds-row__line {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  padding: 3px 8px;
+  border-top: 1px solid var(--dds-row-alt);
+  color: var(--dds-text-2);
+}
+
+.dds-row__label { color: var(--dds-text); font-weight: 600; }
+.dds-row__own { color: #fff; background: var(--dds-row-alt); outline: 1px solid var(--dds-border); }
+
+.dds-card { padding-bottom: 8px; }
+.dds-card > div:last-child { padding: 0 10px; }
+
+.dds-steps { margin: 0; padding: 2px 10px 8px 28px; line-height: 1.6; color: var(--arm-text-2); }
+.dds-steps .is-done { color: #1f6b45; }
+.dds-steps .is-done::marker { content: '✓  '; }
+
+.dds-decision { margin: 0 10px 8px; background: #eef6f0; border-color: #b9d8c2; color: #1f6b45; }
+.dds-decision--late { background: #fdecea; border-color: #f0b7b1; color: var(--arm-red); }
+
+/* своя служба в списке оповещения */
+.arm-service--own { border: 2px solid #fff; box-shadow: inset 0 0 0 1px var(--arm-dark); }

@@ -10,6 +10,7 @@
 
 import { ApiRequestError } from './error';
 import { sessionLost } from './session';
+import { browserTimeZone } from '../utils/time';
 import type { Api } from './types';
 import type { ApiErrorCode } from '../types';
 
@@ -198,8 +199,12 @@ export const httpApi: Api = {
     start: (id) => request('POST', `/lessons/${enc(id)}/start`),
     finish: (id) => request('POST', `/lessons/${enc(id)}/finish`),
     assigned: () => requestAll('/lessons/assigned', 50),
-    // Файл отдаёт сервер: обычная ссылка с cookie сессии, без fetch.
-    reportUrl: (lessonId, format) => `${BASE}/lessons/${enc(lessonId)}/report?format=${format}`,
+    // Файл отдаёт сервер: обычная ссылка с cookie сессии, без fetch. Время в отчёте — в поясе
+    // браузера (tz), как в интерфейсе; без него сервер пишет UTC.
+    reportUrl: (lessonId, format) => {
+      const tz = browserTimeZone();
+      return `${BASE}/lessons/${enc(lessonId)}/report?format=${format}${tz ? `&tz=${enc(tz)}` : ''}`;
+    },
   },
 
   attempts: {
@@ -215,7 +220,8 @@ export const httpApi: Api = {
     addService: (id, serviceCode) => request('POST', `/attempts/${enc(id)}/services`, { body: { serviceCode } }),
     removeService: (id, serviceId) => request('DELETE', `/attempts/${enc(id)}/services/${enc(serviceId)}`),
     replay: (id) => request('POST', `/attempts/${enc(id)}/replay`),
-    submit: (id, card) => request('POST', `/attempts/${enc(id)}/submit`, { body: { card } }),
+    submit: (id, card, actionText) =>
+      request('POST', `/attempts/${enc(id)}/submit`, { body: actionText === undefined ? { card } : { card, actionText } }),
   },
 
   evaluation: {

@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,12 @@ func TestStartEvaluation_DDS_DB(t *testing.T) {
 	t.Parallel()
 	f := newDB(t)
 
-	// Эталон ждёт «Принята» за 30 с и «Начало реагирования».
+	// Эталон ждёт «Принята» за 30 с и «Начало реагирования»; смысл текста действия — по
+	// ожидаемым действиям диспетчера (expected_actions), а не по фактам звонка (fireScoring).
 	f.exec(t, `UPDATE etalons SET scoring = scoring || '{"reaction": {"decision": "accept", "decision_within_sec": 30,
-		"required_statuses": ["Начало реагирования"]}}'::jsonb WHERE id = $1`, f.etalon)
+		"required_statuses": ["Начало реагирования"]}}'::jsonb,
+		expected_actions = '[{"action_text": "Сообщение принято, бригада направлена на место",
+			"required_facts": ["Сообщение принято", "Бригада направлена на место"]}]'::jsonb WHERE id = $1`, f.etalon)
 	lesson := f.lesson(t, core.LessonRunning, `{"perspective": "dds", "pass_threshold": 70}`, f.student)
 
 	// Диспетчер ДДС ЖКХ взял карточку в работу 60 с назад, «Принята» — через 45 с (позже
@@ -88,8 +92,18 @@ func TestStartEvaluation_DDS_DB(t *testing.T) {
 	if got[gramFieldActionText] != action || got[gramFieldReactionComments] != "Принято, бригада выезжает" {
 		t.Errorf("тексты грамматики: %+v", req.Texts)
 	}
-	if _, ok := jobs[core.JobEvaluateSemantic]; !ok {
-		t.Error("нет задачи смыслового слоя по тексту действия")
+	sem, ok := jobs[core.JobEvaluateSemantic]
+	if !ok {
+		t.Fatal("нет задачи смыслового слоя по тексту действия")
+	}
+	sraw, _ := json.Marshal(sem.Payload)
+	if !strings.Contains(string(sraw), `"Бригада направлена на место"`) {
+		t.Errorf("смысловой слой ДДС без expected_actions: %s", sraw)
+	}
+	for _, leak := range []string{"горит квартира", "пятый этаж"} { // факты звонка (fireScript/fireScoring)
+		if strings.Contains(string(sraw), leak) {
+			t.Errorf("смысловой слой ДДС получил факт звонка %q: %s", leak, sraw)
+		}
 	}
 
 	// Рекомендации (по окончательной оценке) — про протокол диспетчера, а не про «заполните поля».
@@ -113,5 +127,66 @@ func TestStartEvaluation_DDS_DB(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("нет рекомендации по протоколу: %v", recs)
+	}
+}
+
+// Ракурс ДДС без эталонных действий: смысловой слой не оценивается (skipped), задача в
+// ai-service не ставится, факты звонка (scoring.required_facts) не используются, итог —
+// по остальным слоям с перенормировкой весов.
+func TestStartEvaluation_DDS_NoExpectedActions_DB(t *testing.T) {
+	t.Parallel()
+	f := newDB(t) // эталон: required_facts звонка, expected_actions = []
+	lesson := f.lesson(t, core.LessonRunning, `{"perspective": "dds", "pass_threshold": 70}`, f.student)
+
+	opened := time.Now().UTC().Add(-40 * time.Second).Truncate(time.Millisecond)
+	card := map[string]any{
+		"address": map[string]any{"raw": "Москва, Тверская, 12"}, "description": "Горит квартира",
+		"actionsTaken": "", "incidentTypeIds": []string{}, "attributes": map[string]any{}, "phones": map[string]any{},
+		"applicant": map[string]any{}, "flags": map[string]any{"victimsPresent": false, "ambulanceRefusal": false,
+			"blocked": false, "noContact": false, "callDropped": false},
+		"services": []map[string]any{{
+			"serviceId": "x", "code": "zhkh", "name": "ДДС ЖКХ", "shortName": "ДДС ЖКХ", "isPrimary": true,
+			"source": "auto", "currentStatus": "Принята", "currentStatusAt": opened.Add(10 * time.Second),
+			"allowedNext": []any{}, "editable": true,
+			"history": []map[string]any{
+				{"status": "Получена службой", "at": opened, "operator": "система"},
+				{"status": "Принята", "at": opened.Add(10 * time.Second), "operator": "оп. 227"},
+			},
+		}},
+	}
+	raw, _ := json.Marshal(card)
+	a := f.id(t, `INSERT INTO attempts (lesson_id, user_id, scenario_id, etalon_id, mode, seq_no, status, time_limit_sec,
+			call_accepted_at, first_input_at, submitted_at, time_spent_ms, card, action_text, service_id)
+		VALUES ($1, $2, $3, $4, 'card_actions', 1, 'submitted', 120, $5, $6, $7, 20000, $8, $9,
+			(SELECT id FROM services WHERE code = 'zhkh')) RETURNING id`,
+		lesson, f.student, f.scenario, f.etalon, opened, opened.Add(10*time.Second), opened.Add(20*time.Second),
+		string(raw), "Сообщение принято, бригада направлена на место")
+	f.start(t, a)
+
+	if _, ok := f.queue.byAttempt(a)[core.JobEvaluateSemantic]; ok {
+		t.Fatal("ДДС без expected_actions: смысловая задача не должна ставиться")
+	}
+	v := f.view(t, a)
+	if layers := v["layers"].(map[string]any); layers["semantic"] != core.LayerSkipped {
+		t.Fatalf("layers = %v", layers)
+	}
+	if _, ok := v["semanticScore"]; ok {
+		t.Errorf("semanticScore = %v, слой пропущен", v["semanticScore"])
+	}
+	if _, ok := v["semantic"]; ok {
+		t.Errorf("semantic = %v — факты звонка не должны появляться", v["semantic"])
+	}
+
+	f.apply(t, a, core.JobEvaluateGrammar, grammarRes(90))
+	v = f.view(t, a)
+	if v["status"] != core.EvalDone {
+		t.Fatalf("status = %v (смысловой слой не должен держать финализацию)", v["status"])
+	}
+	w := v["weights"].(map[string]any)
+	fs, gs, ts := v["fieldsScore"].(float64), v["grammarScore"].(float64), v["timingScore"].(float64)
+	wf, wg, wt := w["fields"].(float64), w["grammar"].(float64), w["timing"].(float64)
+	want := math.Round((fs*wf + gs*wg + ts*wt) / (wf + wg + wt))
+	if got := v["totalScore"].(float64); got != want {
+		t.Errorf("totalScore = %v, want %v (без смыслового слоя, веса перенормированы)", got, want)
 	}
 }

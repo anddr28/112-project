@@ -192,6 +192,11 @@ def dds_flow(t, s, student, scs, T):
     ok(ev["fieldsScore"] == 100 and ev["fieldErrors"] == [] and ev["engine"]["fields"]["source"] == "dds_reaction",
        f"протокол реагирования оценён ({ev['fieldsScore']})")
     ok(ev.get("grammarScore") is not None and ev.get("semanticScore") is not None, "грамматика и смысл текста действия")
+    st, scen = t.req("GET", f"/scenarios/{pool[0]}")
+    call_facts = set(scen["callScript"].get("keyFacts") or [])
+    sem_facts = set((ev.get("semantic") or {}).get("missingFacts") or [])
+    ok(st == 200 and call_facts and not (sem_facts & call_facts),
+       f"смысл ДДС — по действиям диспетчера, не по фактам звонка (не зафиксировано: {sorted(sem_facts)})")
     st, fin = t.req("POST", f"/lessons/{lesson['id']}/finish")
     ok(st == 200 and fin["status"] == "finished", "завершение занятия ДДС")
 

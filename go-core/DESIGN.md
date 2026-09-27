@@ -172,7 +172,15 @@ go-core строит contract `IncidentCard` (`DraftToCard`); сгенериро
 - Оценка: слой `fields` = `dds.Evaluate` (`etalons.scoring.reaction`: решение 3, норматив решения
   от `callAcceptedAt` 2, лишний отказ 1, обязательные статусы по 1; нет эталона — «Принята» за 30 с),
   `engine.fields.source = dds_reaction`; грамматика — `actionText` + комментарии к статусам своей
-  службы (`reactionComments`); семантика — как `card_actions`; рекомендации — тексты диспетчера.
+  службы (`reactionComments`); рекомендации — тексты диспетчера.
+- Семантика ДДС — `actionText` против **только** `etalons.expected_actions[].required_facts` (действия
+  диспетчера: принята в работу, направлена бригада, принятые меры). Факты первоначального звонка
+  (`scoring.required_facts`, `call_script.key_facts`) — это то, что видел заявитель, а не работа
+  службы: по ним ДДС не оценивается и в задачу ai-service они не передаются. Нет `expected_actions` —
+  слой `semantic` = `skipped` (`engine.semantic.reason = dds_no_expected_actions`), в итог не входит,
+  веса остальных слоёв перенормируются. Оператор 112 — без изменений: факты из `scoring.required_facts`
+  → `expected_actions` → `call_script.key_facts`. Демо-сценарии с действиями ДДС фиксируют факты
+  звонка в `scoring.required_facts` явно, чтобы запасной путь 112 не дошёл до действий ДДС.
 
 ### Оценка (слои, веса, итог)
 - `fields` и `timing` — мгновенно в submit (`status=partial`); AI-слои — задачи `evaluate_grammar`

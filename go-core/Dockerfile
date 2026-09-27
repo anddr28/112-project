@@ -52,8 +52,7 @@ ENV GOCORE_HTTP_ADDR=:8080 \
     GOCORE_TLS_DIR=/data/tls \
     GOCORE_BACKUP_DIR=/data/backups \
     TTS_DIR=/data/tts \
-    GOCORE_LOG_FORMAT=json \
-    TZ=Europe/Moscow
+    GOCORE_LOG_FORMAT=json
 EXPOSE 8080 8443
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
     CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1

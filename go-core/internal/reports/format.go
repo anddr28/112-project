@@ -17,17 +17,33 @@ type report struct {
 	Truncated   bool
 	Summary     summary
 	Students    []studentSummary
-	GeneratedAt time.Time // UTC
-	Loc         *time.Location
+	GeneratedAt time.Time      // UTC
+	Loc         *time.Location // часовой пояс пользователя (параметр tz), без него — UTC
 }
 
 func newReport(meta *lessonMeta, rows []reportRow, truncated bool, now time.Time, loc *time.Location) *report {
 	if loc == nil {
-		loc = time.Local
+		loc = time.UTC
 	}
 	s, st := summarize(rows)
 	return &report{Meta: meta, Rows: rows, Truncated: truncated, Summary: s, Students: st,
 		GeneratedAt: now.UTC(), Loc: loc}
+}
+
+// ddsView — отчёт ракурса «Диспетчер ДДС» (lessons.settings.perspective = dds).
+func (rep *report) ddsView() bool { return rep.Meta != nil && rep.Meta.Settings.IsDDS() }
+
+// ddsServices — службы обучающихся в занятии ДДС (attempts.service_id) без повторов, по порядку строк.
+func (rep *report) ddsServices() []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := range rep.Rows {
+		if p := rep.Rows[i].DDS; p != nil && p.ServiceName != "" && !seen[p.ServiceName] {
+			seen[p.ServiceName] = true
+			out = append(out, p.ServiceName)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------- подписи (как в UI)
@@ -274,8 +290,17 @@ func fmtTime(t *time.Time, loc *time.Location, layout string) string {
 	return t.In(loc).Format(layout)
 }
 
-// zoneLabel — «UTC+03:00» для подписи «время указано в …».
+// zoneLabel — «America/Sao_Paulo, UTC−03:00» для подписи «время …»: имя пояса IANA и смещение
+// на момент t (летнее время — по правилам tzdata для этой даты). Пояс не передан — «UTC».
 func zoneLabel(t time.Time, loc *time.Location) string {
+	if name := loc.String(); name != "" && name != "UTC" {
+		return name + ", " + utcOffset(t, loc)
+	}
+	return "UTC"
+}
+
+// utcOffset — «UTC+05:30» / «UTC−03:00» / «UTC+00:00» на момент t в поясе loc.
+func utcOffset(t time.Time, loc *time.Location) string {
 	_, off := t.In(loc).Zone()
 	sign := '+'
 	if off < 0 {

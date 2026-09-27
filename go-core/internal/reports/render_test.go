@@ -62,7 +62,7 @@ func sampleReport(rows []reportRow) *report {
 func TestNewReport(t *testing.T) {
 	t.Parallel()
 	rep := newReport(sampleMeta(), sampleRows(), true, reportAt.In(msk), nil)
-	if rep.Loc != time.Local || rep.GeneratedAt.Location() != time.UTC || !rep.Truncated || rep.Summary.Participants != 3 {
+	if rep.Loc != time.UTC || rep.GeneratedAt.Location() != time.UTC || !rep.Truncated || rep.Summary.Participants != 3 {
 		t.Fatalf("report = %+v", rep)
 	}
 }
@@ -272,7 +272,7 @@ func TestBuildXLSX(t *testing.T) {
 	}
 	text := flatten(summary)
 	for _, want := range []string{"Отчёт по занятию", "Пожары & ДТП: итоговое занятие", "Учителев И. П.", "Завершено",
-		"включён", "Пожар в квартире; ДТП (версия 2)", "24.09.2026 15:30:00 (время UTC+03:00)",
+		"включён", "Пожар в квартире; ДТП (версия 2)", "24.09.2026 15:30:00 (время MSK, UTC+03:00)",
 		"2 из 2 (100 %)", "1 из 2 (50 %)", "Андреев Андрей Андреевич", "Итоги по обучающимся"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("в сводке нет %q", want)
@@ -450,7 +450,7 @@ func TestSplitCell(t *testing.T) {
 func TestPDFColumnsFitPage(t *testing.T) {
 	t.Parallel()
 	var w float64
-	for _, c := range pdfColumns() {
+	for _, c := range pdfColumns(false) {
 		if c.w <= 0 {
 			t.Errorf("%s: ширина %v", c.title, c.w)
 		}
@@ -461,7 +461,7 @@ func TestPDFColumnsFitPage(t *testing.T) {
 	}
 	// колонка «Итог» помечает корректировку звёздочкой, до окончания оценки — прочерк
 	var total pdfCol
-	for _, c := range pdfColumns() {
+	for _, c := range pdfColumns(false) {
 		if c.title == "Итог" {
 			total = c
 		}

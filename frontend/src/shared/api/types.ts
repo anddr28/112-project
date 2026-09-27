@@ -238,7 +238,11 @@ export interface Api {
     addService(id: string, serviceCode: string): Promise<AssignedService>;
     removeService(id: string, serviceId: string): Promise<void>;
     replay(id: string): Promise<{ replayCount: number }>;
-    submit(id: string, card: IncidentCardDraft): Promise<Attempt>;
+    /**
+     * Сдача попытки. `actionText` — текст действия диспетчера ДДС (v1.3): в
+     * ракурсе dds сервер берёт карточку из своего черновика, из тела — только его.
+     */
+    submit(id: string, card: IncidentCardDraft, actionText?: string): Promise<Attempt>;
   };
 
   evaluation: {

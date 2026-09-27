@@ -26,7 +26,6 @@ services:
       POSTGRES_DB: lct
       POSTGRES_USER: lct
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lct}
-      TZ: Europe/Moscow
     # стартовые значения из docs/db-design.md §7, ужатые под ноутбук стенда (16 ГБ)
     command: >
       postgres

@@ -713,6 +713,15 @@ paths:
       parameters:
         - {$ref: '#/components/parameters/lessonId'}
         - {name: format, in: query, required: true, schema: {type: string, enum: [csv, xlsx, pdf]}}
+        - name: tz
+          in: query
+          required: false
+          description: >
+            Часовой пояс пользователя (имя IANA, как его определяет браузер:
+            Intl.DateTimeFormat().resolvedOptions().timeZone). Время в отчёте и дата в имени
+            файла — в этом поясе, с летним временем по tzdata. Без параметра — UTC.
+            Неизвестное имя — 400 validation (details.fields.tz).
+          schema: {type: string, maxLength: 64}
       responses:
         '200':
           description: Файл отчёта (Content-Disposition attachment)

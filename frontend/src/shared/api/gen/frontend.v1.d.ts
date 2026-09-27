@@ -3108,6 +3108,8 @@ export interface operations {
         parameters: {
             query: {
                 format: "csv" | "xlsx" | "pdf";
+                /** @description Часовой пояс пользователя (имя IANA, как его определяет браузер: Intl.DateTimeFormat().resolvedOptions().timeZone). Время в отчёте и дата в имени файла — в этом поясе, с летним временем по tzdata. Без параметра — UTC. Неизвестное имя — 400 validation (details.fields.tz). */
+                tz?: string;
             };
             header?: never;
             path: {

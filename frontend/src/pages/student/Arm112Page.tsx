@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAuth } from '../../app/auth';
 import { IncidentCard } from '../../features/incident-card/IncidentCard';
+import { DdsWorkspace } from '../../features/dds/DdsWorkspace';
+import { ddsDecision, ownService } from '../../features/dds/ddsDecision';
 import { useAttemptTimer, useAutosave, useEventLog } from '../../features/attempt-runtime/useAttemptRuntime';
 import { emptyCard } from '../../shared/utils/card';
 import type { Attempt, IncidentCardDraft, StudentCallScript, User } from '../../shared/types';
@@ -56,15 +58,47 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     return () => { cancelled = true; };
   }, [attemptId]);
 
+  const dds = attempt?.perspective === 'dds';
+
   /** Перечитывает черновик после операций, меняющих состав или статусы служб. */
   const reloadDraft = useCallback(() => {
     void api.attempts
       .getDraft(attemptId)
-      .then(setCard)
+      // ДДС: текст действия мог быть набран, но ещё не дойти до сервера —
+      // статус службы не должен затирать его серверной копией.
+      .then((draft) => setCard((prev) => (dds ? { ...draft, actionsTaken: prev.actionsTaken } : draft)))
       // Перечитывание черновика — вспомогательное действие: на экране остаётся
       // актуальная карточка, отдельного экрана ошибки здесь не нужно.
       .catch(() => {});
-  }, [attemptId]);
+  }, [attemptId, dds]);
+
+  /**
+   * ДДС (v1.3): карточку сервер берёт из своего черновика, из тела — только
+   * текст действия. Проверок полей карточки 112 здесь нет: её заполнял оператор.
+   */
+  async function submitDds() {
+    if (!attempt) return;
+    const own = ownService(card, attempt);
+    const hints: string[] = [];
+    if (!ddsDecision(own, attempt.callAcceptedAt)) hints.push('• Не проставлено решение «Принята» / «Не принята»');
+    if (!card.actionsTaken.trim()) hints.push('• Не заполнен текст действия');
+    const question =
+      hints.length > 0
+        ? `${hints.join('\n')}\n\nЗавершить работу с карточкой в таком виде?`
+        : 'Завершить работу с карточкой?';
+    if (!window.confirm(question)) return;
+
+    setSubmitting(true);
+    await flush();
+    await saveNow();
+    try {
+      await api.attempts.submit(attemptId, card, card.actionsTaken);
+      navigate(`/student/attempts/${attemptId}/result`, { replace: true });
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Не удалось завершить работу с карточкой' });
+      setSubmitting(false);
+    }
+  }
 
   async function submit() {
     if (!attempt) return;
@@ -121,6 +155,24 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
   // Попытка завершена — показываем результат, а не редактируемую карточку.
   if (state.attempt.status !== 'in_progress') {
     return <Navigate to={`/student/attempts/${attemptId}/result`} replace />;
+  }
+
+  if (dds) {
+    return (
+      <DdsWorkspace
+        attempt={state.attempt}
+        user={user}
+        card={card}
+        elapsedMs={elapsedMs}
+        saveState={saveState}
+        savedAt={savedAt}
+        submitting={submitting}
+        onChange={setCard}
+        onFieldChange={logFieldChange}
+        onServicesChanged={reloadDraft}
+        onSubmit={() => void submitDds()}
+      />
+    );
   }
 
   return (

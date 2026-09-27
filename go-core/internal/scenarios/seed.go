@@ -52,6 +52,9 @@ type demoScenario struct {
 	EtalonDraft      json.RawMessage          `json:"etalonDraft"`
 	RequiredFields   []string                 `json:"requiredFields"`
 	ExpectedDialogue *public.ExpectedDialogue `json:"expectedDialogue"`
+	// ExpectedActions — действия диспетчера ДДС по карточке: по их required_facts оценивается
+	// смысл текста действия в ракурсе ДДС (факты звонка для этого не годятся).
+	ExpectedActions []public.ExpectedAction `json:"expectedActions"`
 }
 
 // SeedDemoScenarios — идемпотентный сид демо-сценариев (по названию: существующий —
@@ -228,7 +231,13 @@ func (s *Service) seedOne(ctx context.Context, tx pgx.Tx, ds *demoScenario, teac
 		Card:    convert.IncidentCardFromPublic(&ds.EtalonCard),
 		Draft:   draft,
 		Scoring: model.Scoring{RequiredFields: cleanStrings(ds.RequiredFields)},
-		Actions: []model.ExpectedAction{},
+		Actions: convert.ExpectedActionsFromPublic(ds.ExpectedActions),
+	}
+	if len(e.Actions) > 0 {
+		// Оператор 112 оценивается по фактам звонка: без явного required_facts запасной путь
+		// смыслового слоя дошёл бы до expected_actions (действий ДДС). Фиксируем те же факты,
+		// что и при генерации (requiredFacts) — для 112 набор фактов не меняется.
+		e.Scoring.RequiredFacts = requiredFacts(&cs)
 	}
 	if ds.ExpectedDialogue != nil {
 		dlg := convert.ExpectedDialogueFromPublic(ds.ExpectedDialogue)

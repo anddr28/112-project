@@ -114,18 +114,20 @@ function describe(
     return { label: 'Ожидает запуска преподавателем', tone: 'neutral' };
   }
 
+  // Ракурс ДДС: вместо звонка поступает карточка от оператора 112.
+  const dds = attempt.perspective === 'dds';
   switch (attempt.status) {
     case 'issued':
       return {
-        label: 'Поступил вызов',
+        label: dds ? 'Поступила карточка' : 'Поступил вызов',
         tone: 'warn',
-        action: { label: 'Принять вызов', to: `/student/attempts/${attempt.id}/call` },
+        action: { label: dds ? 'Взять в работу' : 'Принять вызов', to: `/student/attempts/${attempt.id}/call` },
       };
     case 'in_progress':
       return {
         label: 'Обработка карточки',
         tone: 'warn',
-        action: { label: 'Вернуться в АРМ-112', to: `/student/attempts/${attempt.id}/arm` },
+        action: { label: dds ? 'Вернуться к карточке' : 'Вернуться в АРМ-112', to: `/student/attempts/${attempt.id}/arm` },
       };
     case 'submitted':
     case 'evaluating':

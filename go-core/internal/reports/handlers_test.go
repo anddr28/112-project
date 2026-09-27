@@ -66,14 +66,14 @@ type env struct {
 	srv *httptest.Server
 }
 
-// fixedNow — 24.09.2026 22:30 UTC: в Москве уже 25-е (дата в имени файла — в зоне отчёта).
+// fixedNow — 24.09.2026 22:30 UTC: в поясе UTC+3 уже 25-е (дата в имени файла — в зоне отчёта).
 var fixedNow = time.Date(2026, 9, 24, 22, 30, 0, 0, time.UTC)
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	f := newFixture(t)
 	aud := &recAuditor{}
-	h := New(Deps{Pool: f.pool, Auditor: aud, Log: discardLog(), Location: msk})
+	h := New(Deps{Pool: f.pool, Auditor: aud, Log: discardLog()})
 	h.now = func() time.Time { return fixedNow }
 	mux := http.NewServeMux()
 	r := httpx.NewRouter(mux, "/api/v1", stubAuth{}, discardLog(), nil)
@@ -141,7 +141,7 @@ func TestReportRoute(t *testing.T) {
 	if got := r.Routes(); len(got) != 1 || got[0] != "GET /lessons/{lessonId}/report" {
 		t.Fatalf("routes = %v", got)
 	}
-	if h.loc != time.Local || cap(h.sem) != 2 || h.log == nil || h.now == nil {
+	if cap(h.sem) != 2 || h.log == nil || h.now == nil {
 		t.Fatalf("defaults: %+v", h)
 	}
 }
@@ -186,7 +186,8 @@ func TestReportAccess(t *testing.T) {
 func TestReportFormats(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	base := "/lessons/" + e.lesson.String() + "/report?format="
+	// Пояс пользователя — параметром tz (браузер передаёт свой IANA-пояс).
+	base := "/lessons/" + e.lesson.String() + "/report?tz=Europe/Moscow&format="
 	const wantDate = "2026-09-25"
 
 	cases := []struct {

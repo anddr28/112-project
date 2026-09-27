@@ -14,6 +14,10 @@ import type { Attempt, StudentCallScript } from '../../shared/types';
  * Данные берутся из callScript, а не из сценария целиком: Scenario несёт
  * эталонную карточку, keyFacts и требуемые поля, то есть правильные ответы.
  * Обучающемуся они не передаются даже в сетевом ответе.
+ *
+ * Ракурс «Диспетчер ДДС» (v1.3): звонка нет — поступает карточка от
+ * оператора 112. «Взять в работу» (тот же accept-call) запускает отсчёт
+ * 30 с на решение «Принята» / «Не принята».
  */
 export function IncomingCallPage() {
   const { attemptId = '' } = useParams();
@@ -34,7 +38,8 @@ export function IncomingCallPage() {
           navigate(`/student/attempts/${attemptId}/arm`, { replace: true });
           return;
         }
-        const s = await api.callScript.get(attemptId);
+        // У ДДС реплик заявителя нет — call-script не нужен.
+        const s = a.perspective === 'dds' ? null : await api.callScript.get(attemptId);
         if (!cancelled) setScript(s);
       })
       .catch((e: unknown) => {
@@ -49,7 +54,7 @@ export function IncomingCallPage() {
       await api.attempts.acceptCall(attemptId);
       navigate(`/student/attempts/${attemptId}/arm`, { replace: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось принять вызов');
+      setError(e instanceof Error ? e.message : 'Не удалось принять в работу');
       setBusy(false);
     }
   }
@@ -61,6 +66,35 @@ export function IncomingCallPage() {
           <h2>Ошибка</h2>
           <p className="muted" style={{ margin: '8px 0 16px' }}>{error}</p>
           <button type="button" className="btn" onClick={() => navigate('/student')}>К занятиям</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (attempt?.perspective === 'dds') {
+    return (
+      <div className="call-screen">
+        <div className="call-card">
+          <div className="call-card__pulse"><Icon name="bell" size={22} /></div>
+          <div className="call-card__title">Поступила карточка от оператора 112</div>
+          <div className="call-card__phone mono">№ {attempt.incidentNo}</div>
+          <div className="call-card__meta">
+            Служба: {attempt.actingService?.name ?? 'не определена'}
+          </div>
+
+          <div className="call-card__meta" style={{ marginTop: 14, lineHeight: 1.5 }}>
+            Решение «Принята» / «Не принята» — в течение <b>30 с</b>.<br />
+            Норматив работы с карточкой — <b>{attempt.timeLimitSec} с</b>.<br />
+            Отсчёт начнётся, когда вы возьмёте карточку в работу.
+          </div>
+
+          <button type="button" className="call-card__accept" disabled={busy} onClick={() => void accept()}>
+            {busy ? 'Открытие…' : 'Взять в работу'}
+          </button>
+
+          <button type="button" className="arm-mini" style={{ marginTop: 10 }} onClick={() => navigate('/student')}>
+            Вернуться к занятиям
+          </button>
         </div>
       </div>
     );

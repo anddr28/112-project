@@ -411,6 +411,12 @@ export interface Attempt {
   scenarioId: string;
   mode: LessonMode;
   perspective: ArmPerspective;
+  /**
+   * v1.3, только ракурс dds: служба, за диспетчера которой работает обучающийся
+   * (профиль ДДС или основная служба карточки). Ракурс определяется по попытке,
+   * а не по занятию: попытки, выданные раньше, работают по-старому.
+   */
+  actingService?: ServiceRef;
   seqNo: number;
   status: AttemptStatus;
   timeLimitSec: number;
@@ -558,6 +564,8 @@ export interface SystemHealth {
 /** Чем посчитаны AI-слои: модель и версии по каждому слою (camelCase, как отдаёт go-core). */
 export interface EvaluationEngine {
   rulesVersion?: string;
+  /** слой полей: `dds_reaction` — протокол реагирования диспетчера ДДС (v1.3) */
+  fields?: { source?: string };
   grammar?: Engine;
   semantic?: Engine;
   dialogue?: Engine;

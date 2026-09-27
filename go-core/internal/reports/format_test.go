@@ -105,11 +105,11 @@ func TestZoneLabel(t *testing.T) {
 		loc  *time.Location
 		want string
 	}{
-		{msk, "UTC+03:00"},
-		{time.UTC, "UTC+00:00"},
-		{time.FixedZone("NST", -(3*3600 + 30*60)), "UTC−03:30"},
-		{time.FixedZone("IST", 5*3600+30*60), "UTC+05:30"},
-		{time.FixedZone("LINT", 14*3600), "UTC+14:00"},
+		{msk, "MSK, UTC+03:00"},
+		{time.UTC, "UTC"},
+		{time.FixedZone("NST", -(3*3600 + 30*60)), "NST, UTC−03:30"},
+		{time.FixedZone("IST", 5*3600+30*60), "IST, UTC+05:30"},
+		{time.FixedZone("LINT", 14*3600), "LINT, UTC+14:00"},
 	}
 	for _, tc := range cases {
 		if got := zoneLabel(at, tc.loc); got != tc.want {

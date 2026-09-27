@@ -774,6 +774,146 @@ func TestSetLocalSemantic(t *testing.T) {
 	}
 }
 
+// semanticPayloadFacts — источники фактов в payload смысловой задачи.
+type semanticPayloadFacts struct {
+	Mode       string `json:"mode"`
+	CallScript struct {
+		KeyFacts []string `json:"key_facts"`
+	} `json:"call_script"`
+	Etalon struct {
+		Scoring *struct {
+			RequiredFacts []string `json:"required_facts"`
+		} `json:"scoring"`
+		ExpectedActions []struct {
+			RequiredFacts []string `json:"required_facts"`
+		} `json:"expected_actions"`
+	} `json:"etalon"`
+}
+
+func decodeSemanticPayload(t *testing.T, job core.NewJob) semanticPayloadFacts {
+	t.Helper()
+	raw, _ := json.Marshal(job.Payload)
+	var p semanticPayloadFacts
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("payload %s: %v", raw, err)
+	}
+	return p
+}
+
+func ddsActions() []model.ExpectedAction {
+	return []model.ExpectedAction{{
+		ActionText:    "Карточка принята в работу, аварийная бригада направлена на место",
+		RequiredFacts: []string{"Карточка принята в работу", "Аварийная бригада направлена на место"},
+	}}
+}
+
+// Ракурс ДДС: факты смыслового слоя — только expected_actions; факты звонка
+// (scoring.required_facts, call_script.key_facts) в ai-service не уходят.
+func TestSemanticJobDDSUsesOnlyExpectedActions(t *testing.T) {
+	t.Parallel()
+	s := New(Deps{Log: discardLog()})
+	st := testStart(core.ModeCardActions)
+	st.ServiceCode = "zhkh"
+	st.ActionText = ptr("Карточка принята в работу, бригада направлена")
+	st.Scoring.RequiredFacts = []string{"горит квартира"}
+	st.ExpectedActions = ddsActions()
+
+	job, ok := s.semanticJob(st, nil, s.scenarioContext(st))
+	if !ok {
+		t.Fatal("DDS with action text and expected_actions — job expected")
+	}
+	p := decodeSemanticPayload(t, job)
+	if p.Mode != "card_actions" || len(p.Etalon.ExpectedActions) != 1 || len(p.Etalon.ExpectedActions[0].RequiredFacts) != 2 {
+		t.Fatalf("payload = %+v", p)
+	}
+	if len(p.CallScript.KeyFacts) != 0 {
+		t.Fatalf("DDS payload leaks call key_facts: %v", p.CallScript.KeyFacts)
+	}
+	if p.Etalon.Scoring != nil && len(p.Etalon.Scoring.RequiredFacts) != 0 {
+		t.Fatalf("DDS payload leaks scoring.required_facts: %v", p.Etalon.Scoring.RequiredFacts)
+	}
+	// Эталон попытки не меняется — чистится только копия для payload.
+	if len(st.Scoring.RequiredFacts) != 1 || len(st.CallScript.KeyFacts) != 1 {
+		t.Fatalf("startRow mutated: scoring=%v key_facts=%v", st.Scoring.RequiredFacts, st.CallScript.KeyFacts)
+	}
+}
+
+// Оператор 112 (card_actions и cards): payload смысловой задачи прежний — факты звонка на месте.
+func TestSemanticJob112KeepsCallFacts(t *testing.T) {
+	t.Parallel()
+	s := New(Deps{Log: discardLog()})
+	ca := testStart(core.ModeCardActions)
+	ca.ActionText = ptr("Направил расчёт")
+	ca.Scoring.RequiredFacts = []string{"горит квартира"}
+	ca.ExpectedActions = ddsActions()
+	job, ok := s.semanticJob(ca, nil, s.scenarioContext(ca))
+	if !ok {
+		t.Fatal("112 card_actions — job expected")
+	}
+	p := decodeSemanticPayload(t, job)
+	if strings.Join(p.CallScript.KeyFacts, ",") != "горит квартира" || p.Etalon.Scoring == nil ||
+		strings.Join(p.Etalon.Scoring.RequiredFacts, ",") != "горит квартира" || len(p.Etalon.ExpectedActions) != 1 {
+		t.Fatalf("112 card_actions payload changed: %+v", p)
+	}
+
+	cards := testStart(core.ModeCards)
+	cards.Scoring.RequiredFacts = []string{"горит квартира"}
+	job, ok = s.semanticJob(cards, &public.IncidentCardDraft{Description: "Горит квартира"}, s.scenarioContext(cards))
+	if !ok {
+		t.Fatal("112 cards — job expected")
+	}
+	p = decodeSemanticPayload(t, job)
+	if p.Mode != "cards" || strings.Join(p.CallScript.KeyFacts, ",") != "горит квартира" || p.Etalon.Scoring == nil ||
+		strings.Join(p.Etalon.Scoring.RequiredFacts, ",") != "горит квартира" {
+		t.Fatalf("112 cards payload changed: %+v", p)
+	}
+}
+
+// Ракурс ДДС без текста действия: локальный 0 — с фактами только из expected_actions.
+func TestSetLocalSemanticDDS(t *testing.T) {
+	t.Parallel()
+	st := testStart(core.ModeCardActions)
+	st.ServiceCode = "zhkh"
+	st.Scoring.RequiredFacts = []string{"горит квартира"}
+	st.ExpectedActions = ddsActions()
+	r := newTestRow()
+	if err := r.setLocalSemantic(st); err != nil {
+		t.Fatal(err)
+	}
+	var res components.SemanticResult
+	if err := json.Unmarshal(r.Semantic, &res); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(convertSlice(res.MissingFacts), ","); got != "Карточка принята в работу,Аварийная бригада направлена на место" {
+		t.Fatalf("DDS missing facts = %q (факты звонка не должны попадать)", got)
+	}
+	if deref(res.SummaryForStudent) != summaryNoActionText || deref(r.SemanticScore) != 0 {
+		t.Fatalf("res = %+v", res)
+	}
+}
+
+// Ракурс ДДС без эталонных действий: слой пропущен, итог — по остальным слоям с перенормировкой.
+func TestSkipDDSSemanticRecompute(t *testing.T) {
+	t.Parallel()
+	r := newTestRow()
+	r.skipDDSSemantic()
+	if r.Layers[core.LayerSemantic] != core.LayerSkipped || r.SemanticScore != nil || len(r.Semantic) != 0 {
+		t.Fatalf("layers=%v score=%v semantic=%s", r.Layers, r.SemanticScore, r.Semantic)
+	}
+	if e, _ := r.Engine[core.LayerSemantic].(map[string]any); e["reason"] != reasonDDSNoExpectedActions {
+		t.Fatalf("engine = %v", r.Engine)
+	}
+	r.FieldsScore, r.GrammarScore, r.TimingScore = ptr(80.0), ptr(90.0), ptr(100.0)
+	r.Layers[core.LayerFields], r.Layers[core.LayerGrammar], r.Layers[core.LayerTiming] = core.LayerDone, core.LayerDone, core.LayerDone
+	if !r.recompute(time.Now()) || r.Status != core.EvalDone {
+		t.Fatalf("status = %v", r.Status)
+	}
+	// веса 0.5/0.1/0.15 без смыслового 0.25: (40+9+15)/0.75 = 85.33 → 85
+	if r.TotalScore != 85 {
+		t.Fatalf("total = %v, want 85 (semantic excluded, weights renormalized)", r.TotalScore)
+	}
+}
+
 func convertSlice(p *[]string) []string {
 	if p == nil {
 		return nil

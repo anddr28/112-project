@@ -30,6 +30,7 @@ export function StudentLessonPage() {
 
   const l = lesson.data;
   const attempt = assignment.attempt;
+  const dds = l.perspective === 'dds';
 
   return (
     <>
@@ -50,23 +51,36 @@ export function StudentLessonPage() {
 
       <div className="grid grid--sidebar">
         <Card title="Порядок работы">
-          <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
-            <li>Примите входящий вызов — с этого момента идёт отсчёт времени.</li>
-            <li>Выслушайте заявителя; при необходимости переспросите.</li>
-            <li>Выберите тип происшествия в блоке «Что случилось?».</li>
-            <li>Заполните адрес через единую адресную строку.</li>
-            <li>Ответьте на дополнительные вопросы опросной карты.</li>
-            <li>Заполните заявителя, описание и сведения о пострадавших.</li>
-            <li>Проверьте автоматически определённый список служб.</li>
-            <li>Проставьте статусы реагирования служб.</li>
-            <li>Сохраните карточку — службы будут оповещены.</li>
-          </ol>
+          {dds ? (
+            <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
+              <li>Возьмите в работу карточку, поступившую от оператора 112, — с этого момента идёт отсчёт.</li>
+              <li>Изучите карточку: она доступна только для чтения.</li>
+              <li>В списке оповещения откройте свою службу.</li>
+              <li>В течение 30 с поставьте «Принята» или «Не принята» (с причиной в комментарии).</li>
+              <li>Проставляйте статусы реагирования последовательно, с комментариями.</li>
+              <li>Запишите текст действия и завершите работу с карточкой.</li>
+            </ol>
+          ) : (
+            <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
+              <li>Примите входящий вызов — с этого момента идёт отсчёт времени.</li>
+              <li>Выслушайте заявителя; при необходимости переспросите.</li>
+              <li>Выберите тип происшествия в блоке «Что случилось?».</li>
+              <li>Заполните адрес через единую адресную строку.</li>
+              <li>Ответьте на дополнительные вопросы опросной карты.</li>
+              <li>Заполните заявителя, описание и сведения о пострадавших.</li>
+              <li>Проверьте автоматически определённый список служб.</li>
+              <li>Проставьте статусы реагирования служб.</li>
+              <li>Сохраните карточку — службы будут оповещены.</li>
+            </ol>
+          )}
 
           <div className="divider" style={{ margin: '14px 0' }} />
 
           <p className="muted small">
             Превышение норматива не прерывает работу: таймер станет красным,
-            но карточку нужно заполнить полностью и корректно.
+            {dds
+              ? ' но решение и статусы нужно проставить, а текст действия — записать.'
+              : ' но карточку нужно заполнить полностью и корректно.'}
           </p>
         </Card>
 
@@ -89,7 +103,7 @@ export function StudentLessonPage() {
                 <div className="field__label">Состояние</div>
                 <div>
                   {attempt.status === 'issued'
-                    ? 'Поступил вызов'
+                    ? dds ? 'Поступила карточка' : 'Поступил вызов'
                     : attempt.status === 'in_progress'
                       ? 'В работе'
                       : attempt.status === 'expired' || attempt.status === 'aborted'
@@ -104,7 +118,7 @@ export function StudentLessonPage() {
                   className="btn btn--primary btn--block"
                   onClick={() => navigate(`/student/attempts/${attempt.id}/call`)}
                 >
-                  Принять вызов
+                  {dds ? 'Взять в работу' : 'Принять вызов'}
                 </button>
               )}
               {attempt.status === 'in_progress' && (
@@ -113,7 +127,7 @@ export function StudentLessonPage() {
                   className="btn btn--primary btn--block"
                   onClick={() => navigate(`/student/attempts/${attempt.id}/arm`)}
                 >
-                  Вернуться в АРМ-112
+                  {dds ? 'Вернуться к карточке' : 'Вернуться в АРМ-112'}
                 </button>
               )}
               {(attempt.status === 'evaluated' || attempt.status === 'evaluating' || attempt.status === 'submitted') && (

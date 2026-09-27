@@ -21,6 +21,19 @@ export function formatDelta(ms: number): string {
   return `${sign}${formatDuration(Math.abs(ms))}`;
 }
 
+/**
+ * Часовой пояс пользователя (имя IANA) — как его определяет браузер по настройкам системы.
+ * UI форматирует время в этом же поясе (toLocale* без timeZone), поэтому серверные отчёты,
+ * получившие его в параметре tz, показывают то же время. Нет данных — undefined (сервер — UTC).
+ */
+export function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** ЧЧ:ММ:СС — формат времени статуса в истории реагирования. */
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('ru-RU', { hour12: false });
