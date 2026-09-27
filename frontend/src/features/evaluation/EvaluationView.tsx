@@ -37,6 +37,11 @@ export function EvaluationView({
   // Веса той оценки, которую показываем, важнее текущих настроек занятия.
   const used = ev.weights ?? weights;
   const dialogueLayer = ev.layers?.dialogue;
+  /*
+   * Ракурс ДДС (v1.3): слой «поля» считается не по карточке, а по протоколу
+   * реагирования своей службы — решение, время решения, отказ, статусы.
+   */
+  const reaction = ev.engine?.fields?.source === 'dds_reaction';
 
   /*
    * Слой разговора показываем по фактическим данным оценки, а не по настройкам
@@ -51,7 +56,7 @@ export function EvaluationView({
   return (
     <div className="stack" style={{ gap: 16 }}>
       <div className={cls('grid', hasDialogue ? 'grid--5' : 'grid--4')}>
-        <ScoreTile label="Поля карточки" weight={used?.fields} score={ev.fieldsScore} threshold={threshold} pending={pending} />
+        <ScoreTile label={reaction ? 'Протокол реагирования' : 'Поля карточки'} weight={used?.fields} score={ev.fieldsScore} threshold={threshold} pending={pending} />
         <ScoreTile label="Семантика" weight={used?.semantic} score={ev.semanticScore} threshold={threshold} pending={pending} />
         <ScoreTile label="Грамматика" weight={used?.grammar} score={ev.grammarScore} threshold={threshold} pending={pending} />
         <ScoreTile label="Время" weight={used?.timing} score={ev.timingScore} threshold={threshold} pending={pending} />
@@ -131,22 +136,35 @@ export function EvaluationView({
       )}
 
       <div className="grid grid--2">
-        <Card title="Ошибки заполнения полей">
+        <Card title={reaction ? 'Замечания по протоколу реагирования' : 'Ошибки заполнения полей'}>
           {ev.fieldErrors.length === 0 ? (
-            <p className="muted small">Обязательные поля заполнены без замечаний.</p>
+            <p className="muted small">
+              {reaction ? 'Решение и статусы реагирования проставлены без замечаний.' : 'Обязательные поля заполнены без замечаний.'}
+            </p>
           ) : (
             <table className="table">
-              <thead><tr><th>Поле</th><th>Тип</th><th>Ожидалось</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{reaction ? 'Требование' : 'Поле'}</th>
+                  <th>Тип</th>
+                  <th>Ожидалось</th>
+                  {reaction && <th>Факт</th>}
+                </tr>
+              </thead>
               <tbody>
-                {ev.fieldErrors.map((e) => (
-                  <tr key={e.field}>
+                {/* ключ с индексом: у протокола ДДС одно поле (reaction.statuses) повторяется по статусам */}
+                {ev.fieldErrors.map((e, i) => (
+                  <tr key={`${e.field}-${i}`}>
                     <td>{e.label}</td>
                     <td>
                       <Badge tone={e.kind === 'missing' ? 'danger' : 'warn'}>
-                        {e.kind === 'missing' ? 'не заполнено' : e.kind === 'wrong' ? 'не совпадает' : 'лишнее'}
+                        {e.kind === 'missing'
+                          ? reaction ? 'не проставлено' : 'не заполнено'
+                          : e.kind === 'wrong' ? 'не совпадает' : reaction ? 'лишнее действие' : 'лишнее'}
                       </Badge>
                     </td>
                     <td className="muted small">{renderValue(e.expected)}</td>
+                    {reaction && <td className="muted small">{renderValue(e.actual)}</td>}
                   </tr>
                 ))}
               </tbody>

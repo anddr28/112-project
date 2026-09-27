@@ -926,6 +926,25 @@ func TestDBSeedDemoScenarios(t *testing.T) {
 		t.Errorf("validated %d tts jobs %d", validated, len(e.q.byType(core.JobTTS)))
 	}
 
+	// Ракурс ДДС: подтверждённые демо-сценарии несут действия диспетчера (expected_actions) —
+	// по ним оценивается смысл текста действия. Для 112 факты звонка зафиксированы явно в
+	// scoring.required_facts (= key_facts легенды), чтобы запасной путь 112 не дошёл до действий ДДС.
+	for _, s := range list {
+		acts := deref(s.ExpectedActions)
+		if s.Status != "validated" {
+			if len(acts) != 0 {
+				t.Errorf("%s: expected_actions у неподтверждённой фикстуры: %+v", s.Title, acts)
+			}
+			continue
+		}
+		if len(acts) == 0 || strings.TrimSpace(acts[0].ActionText) == "" || len(deref(acts[0].RequiredFacts)) == 0 {
+			t.Errorf("%s: нет действий ДДС: %+v", s.Title, acts)
+		}
+		if s.Scoring == nil || !slices.Equal(deref(s.Scoring.RequiredFacts), s.CallScript.KeyFacts) {
+			t.Errorf("%s: scoring.required_facts %v, want key_facts %v", s.Title, s.Scoring, s.CallScript.KeyFacts)
+		}
+	}
+
 	// Повтор — ничего нового: сценарии узнаются по названию.
 	jobs := len(e.q.jobs)
 	if err := SeedDemoScenarios(e.ctx, e.seedDeps()); err != nil {

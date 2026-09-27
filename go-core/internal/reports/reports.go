@@ -1,5 +1,6 @@
 // Package reports — выгрузка результатов занятия (ТЗ: отчёты в Excel/PDF; frontend.v1.yaml
-// v1.2, GET /lessons/{lessonId}/report?format=csv|xlsx|pdf).
+// v1.2, GET /lessons/{lessonId}/report?format=csv|xlsx|pdf[&tz=<IANA>]). Время в отчёте — в
+// часовом поясе пользователя из tz (без него — UTC), в БД и API — абсолютные моменты UTC.
 //
 // Данные — один round-trip (шапка + все строки одним SQL в pgx.Batch), затем соединение
 // отпускается, и отчёт собирается в памяти из компактных строк. CSV пишется потоково;
@@ -36,8 +37,6 @@ type Deps struct {
 	Auditor core.Auditor
 	Log     *slog.Logger
 
-	// Location — зона времени в отчёте (nil — time.Local; в контейнере go-core TZ=Europe/Moscow).
-	Location *time.Location
 	// MaxConcurrent — одновременных сборок отчётов (0 — 2).
 	MaxConcurrent int
 }
@@ -47,7 +46,6 @@ type Handlers struct {
 	pool *pgxpool.Pool
 	aud  core.Auditor
 	log  *slog.Logger
-	loc  *time.Location
 	sem  chan struct{}
 	now  func() time.Time
 }
@@ -57,15 +55,11 @@ func New(d Deps) *Handlers {
 	if log == nil {
 		log = slog.Default()
 	}
-	loc := d.Location
-	if loc == nil {
-		loc = time.Local
-	}
 	n := d.MaxConcurrent
 	if n <= 0 {
 		n = 2
 	}
-	return &Handlers{pool: d.Pool, aud: d.Auditor, log: log.With("component", "reports"), loc: loc,
+	return &Handlers{pool: d.Pool, aud: d.Auditor, log: log.With("component", "reports"),
 		sem: make(chan struct{}, n), now: time.Now}
 }
 
@@ -93,6 +87,10 @@ func (h *Handlers) report(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Validation("Укажите формат отчёта: csv, xlsx или pdf",
 			map[string]string{"format": "ожидается csv, xlsx или pdf"})
 	}
+	loc, err := reportLocation(r.URL.Query().Get("tz"))
+	if err != nil {
+		return err
+	}
 	p := core.PrincipalFrom(ctx)
 
 	// Очередь на сборку — до запроса к БД: ждущий не держит соединение пула.
@@ -113,7 +111,7 @@ func (h *Handlers) report(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	now := h.now()
-	rep := newReport(meta, rows, truncated, now, h.loc)
+	rep := newReport(meta, rows, truncated, now, loc)
 
 	// XLSX/PDF собираются до заголовков: ошибка сборки — обычный ApiError 500, а не битый файл.
 	var (
@@ -131,7 +129,7 @@ func (h *Handlers) report(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	ascii, utf := fileNames(meta, format, now, h.loc)
+	ascii, utf := fileNames(meta, format, now, loc)
 	hdr := w.Header()
 	hdr.Set("Content-Type", mime)
 	hdr.Set("Content-Disposition", contentDisposition(ascii, utf))
@@ -155,6 +153,30 @@ func (h *Handlers) report(w http.ResponseWriter, r *http.Request) error {
 	}
 	h.record(ctx, p, lessonID, format, len(rows), truncated, err == nil)
 	return nil
+}
+
+// maxTZLen — потолок длины параметра tz: самые длинные имена IANA — около 30 символов.
+const maxTZLen = 64
+
+// reportLocation — зона времени отчёта из параметра tz: имя IANA, которое браузер обучающегося
+// или преподавателя определил сам (Intl.DateTimeFormat().resolvedOptions().timeZone), с правилами
+// летнего времени из tzdata. Нет параметра — UTC: зона процесса go-core (time.Local) с
+// пользователем не связана и в отчёт не попадает. «Local» — не зона IANA, а та же зона процесса.
+func reportLocation(tz string) (*time.Location, error) {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return time.UTC, nil
+	}
+	bad := httpx.Validation("Неизвестный часовой пояс отчёта",
+		map[string]string{"tz": "ожидается имя часового пояса IANA"})
+	if len(tz) > maxTZLen || tz == "Local" {
+		return nil, bad
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil, bad
+	}
+	return loc, nil
 }
 
 // record — журнал выгрузок: аудит report.export и строка reports (история отчётов занятия,

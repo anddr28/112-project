@@ -113,7 +113,7 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
               </Badge>
             )}
             <Badge tone="neutral">Эталон, версия {s.etalonVersion}</Badge>
-            {s.source === 'generated' && <Badge tone="warn">Нейросеть</Badge>}
+            {s.source === 'generated' && <Badge tone="warn">Сгенерирован</Badge>}
           </div>
         </div>
 

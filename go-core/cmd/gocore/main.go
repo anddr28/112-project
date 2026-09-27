@@ -22,6 +22,9 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	// База часовых поясов IANA внутри бинарника: отчёты показывают время в поясе пользователя
+	// (параметр tz), и имя пояса должно разрешаться на любой ОС и в контейнере без tzdata.
+	_ "time/tzdata"
 
 	"lct/gocore/internal/app"
 	"lct/gocore/internal/config"

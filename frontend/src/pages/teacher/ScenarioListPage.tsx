@@ -16,7 +16,7 @@ function jobText(job: AiJob | null): string {
     case 'queued':
       return job.queuePosition ? `В очереди, позиция ${job.queuePosition}` : 'В очереди';
     case 'running':
-      return job.estWaitSec ? `Нейросеть формирует сценарий, осталось около ${job.estWaitSec} с` : 'Нейросеть формирует сценарий…';
+      return job.estWaitSec ? `Сервис ИИ формирует сценарий, осталось около ${job.estWaitSec} с` : 'Сервис ИИ формирует сценарий…';
     case 'done':
       return 'Сценарий сформирован';
     case 'cancelled':
@@ -28,7 +28,7 @@ function jobText(job: AiJob | null): string {
 
 /** Источник сценария. Значения перечисления не показываем напрямую. */
 const SOURCE_LABEL: Record<string, string> = {
-  generated: 'Нейросеть',
+  generated: 'Генерация ИИ',
   manual: 'Вручную',
   ticket: 'Билет',
   student: 'Карточка обучающегося',

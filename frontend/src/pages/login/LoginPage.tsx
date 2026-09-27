@@ -36,9 +36,13 @@ export function LoginPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void api.auth.demoAccounts().then((list) => {
-      if (!cancelled) setAccounts(list);
-    });
+    // Демо-учётки — подсказка, а не условие входа: сервер недоступен — просто не показываем.
+    api.auth.demoAccounts().then(
+      (list) => {
+        if (!cancelled) setAccounts(list);
+      },
+      () => {},
+    );
     return () => { cancelled = true; };
   }, []);
 

@@ -28,6 +28,9 @@ import (
 // evaluations.engine.rules_version — чтобы оценку можно было объяснить задним числом.
 const rulesVersion = "go-scoring-1"
 
+// reasonDDSNoExpectedActions — engine.semantic.reason: у эталона ДДС нет ожидаемых действий.
+const reasonDDSNoExpectedActions = "dds_no_expected_actions"
+
 // Тексты «оценивать нечего» для смыслового слоя без свободного текста (LLM не зовём).
 const (
 	summaryNoDescription = "Описание со слов заявителя не заполнено, поэтому смысловую полноту оценить не по чему."
@@ -202,7 +205,11 @@ func (s *Service) StartEvaluation(ctx context.Context, tx pgx.Tx, attemptID uuid
 		r.Layers[core.LayerGrammar] = core.LayerSkipped
 	}
 
-	if job, ok := s.semanticJob(st, card, sc); ok {
+	if st.ServiceCode != "" && len(ddsSemanticFacts(st)) == 0 {
+		// Ракурс ДДС без эталонных действий: сверять текст действия диспетчера не с чем
+		// (факты звонка — не его работа) — слой не оценивается и в итог не входит.
+		r.skipDDSSemantic()
+	} else if job, ok := s.semanticJob(st, card, sc); ok {
 		jobs = append(jobs, job)
 		r.Layers[core.LayerSemantic] = core.LayerQueued
 	} else if err := r.setLocalSemantic(st); err != nil {
@@ -491,6 +498,13 @@ func (s *Service) semanticJob(st *startRow, card *public.IncidentCardDraft, sc *
 	profile := components.EvalFast
 	cs := convert.CallScriptToContract(&st.CallScript)
 	cs.Dialogue = nil // бриф заявителя смысловой проверке не нужен (key_facts уже спроецированы)
+	etScoring := st.Scoring
+	if st.ServiceCode != "" {
+		// Ракурс ДДС: факты — только из expected_actions. Факты звонка (key_facts, а из них —
+		// scoring.required_facts) не уходят, чтобы ai-service не подставил их запасным источником.
+		cs.KeyFacts = nil
+		etScoring.RequiredFacts = nil
+	}
 	req := &aiservice.SemanticJobRequest{
 		SchemaVersion:   components.N1,
 		RequestId:       id,
@@ -508,8 +522,8 @@ func (s *Service) semanticJob(st *startRow, card *public.IncidentCardDraft, sc *
 		a := convert.ExpectedActionsToContract(st.ExpectedActions)
 		req.Etalon.ExpectedActions = &a
 	}
-	if !st.Scoring.IsZero() {
-		scoringC := convert.ScoringToContract(&st.Scoring)
+	if !etScoring.IsZero() {
+		scoringC := convert.ScoringToContract(&etScoring)
 		req.Etalon.Scoring = &scoringC
 	}
 	req.Answer.Card = answerCard
@@ -520,15 +534,20 @@ func (s *Service) semanticJob(st *startRow, card *public.IncidentCardDraft, sc *
 // setLocalSemantic — смысловой слой без LLM: свободного текста нет → 0 с пояснением, все
 // обязательные факты — «не зафиксировано» (DESIGN §5). Слой готов сразу, confidence 1.
 func (r *evalRow) setLocalSemantic(st *startRow) error {
-	facts := st.Scoring.RequiredFacts
-	if len(facts) == 0 {
-		for i := range st.ExpectedActions {
-			facts = append(facts, st.ExpectedActions[i].RequiredFacts...)
+	var facts []string
+	if st.ServiceCode != "" {
+		facts = ddsSemanticFacts(st) // ракурс ДДС: только действия эталона
+	} else {
+		facts = st.Scoring.RequiredFacts
+		if len(facts) == 0 {
+			for i := range st.ExpectedActions {
+				facts = append(facts, st.ExpectedActions[i].RequiredFacts...)
+			}
 		}
-	}
-	if len(facts) == 0 {
-		cs := convert.CallScriptToContract(&st.CallScript) // key_facts или проекция брифа без reveal=never
-		facts = convert.SliceFromPtr(cs.KeyFacts)
+		if len(facts) == 0 {
+			cs := convert.CallScriptToContract(&st.CallScript) // key_facts или проекция брифа без reveal=never
+			facts = convert.SliceFromPtr(cs.KeyFacts)
+		}
 	}
 	summary := summaryNoDescription
 	if st.Mode == core.ModeCardActions {
@@ -550,6 +569,28 @@ func (r *evalRow) setLocalSemantic(st *startRow) error {
 	r.Layers[core.LayerSemantic] = core.LayerDone
 	r.Engine[core.LayerSemantic] = map[string]any{"source": "go-core", "reason": "no_free_text"}
 	return nil
+}
+
+// ddsSemanticFacts — факты смыслового слоя ракурса ДДС: только expected_actions[].required_facts
+// эталона. Факты легенды звонка (scoring.required_facts, call_script.key_facts) описывают, что
+// видел заявитель, а не что сделала служба, — по ним текст действия диспетчера не оценивается.
+func ddsSemanticFacts(st *startRow) []string {
+	var facts []string
+	for i := range st.ExpectedActions {
+		for _, f := range st.ExpectedActions[i].RequiredFacts {
+			if !blank(f) {
+				facts = append(facts, f)
+			}
+		}
+	}
+	return facts
+}
+
+// skipDDSSemantic — ракурс ДДС без эталонных действий: смысловой слой не оценивается и в итог
+// не входит (веса остальных слоёв перенормируются в scoring.TotalOf).
+func (r *evalRow) skipDDSSemantic() {
+	r.Layers[core.LayerSemantic] = core.LayerSkipped
+	r.Engine[core.LayerSemantic] = map[string]any{"source": "go-core", "reason": reasonDDSNoExpectedActions}
 }
 
 // dialogueJob — оценка разговора по транскрипту (сквозная нумерация реплик 1..n) и

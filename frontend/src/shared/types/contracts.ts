@@ -77,6 +77,21 @@ export interface Scoring {
   requiredFacts?: string[];
   /** Факты, которых в ответе быть не должно (домыслы) */
   forbiddenFacts?: string[];
+  /** v1.3: эталон работы диспетчера ДДС с поступившей карточкой */
+  reaction?: ReactionExpectation;
+}
+
+/**
+ * `frontend.v1.yaml#/components/schemas/ReactionExpectation` (v1.3).
+ * Нет объекта — сервер ожидает «Принята» за 30 с без обязательных статусов.
+ */
+export interface ReactionExpectation {
+  /** accept — «Принята»; reject — «Не принята» (не зона ответственности службы) */
+  decision?: 'accept' | 'reject';
+  /** норматив решения от взятия карточки в работу, 5..600 с */
+  decisionWithinSec?: number;
+  /** статусы, которые диспетчер обязан проставить после решения */
+  requiredStatuses?: string[];
 }
 
 /** `_components.yaml#/components/schemas/ExpectedAction` */

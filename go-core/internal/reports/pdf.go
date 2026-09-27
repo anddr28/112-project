@@ -5,12 +5,16 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/go-pdf/fpdf"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/goregular"
 
+	"lct/gocore/internal/core"
+	"lct/gocore/internal/gen/public"
+	"lct/gocore/internal/model"
 	"lct/gocore/internal/scoring"
 )
 
@@ -52,9 +56,12 @@ type pdfCol struct {
 	text  func(i int, r *reportRow) string
 }
 
-// Ширины: 238 мм фиксированных колонок + «Ошибки» на остаток ширины (39 мм). Подписи шапки
-// короткие: узкие колонки не должны переноситься посреди слова.
-func pdfColumns() []pdfCol {
+// Ширины: у оператора 112 — 238 мм фиксированных колонок + «Ошибки» на остаток ширины (39 мм).
+// Подписи шапки короткие: узкие колонки не должны переноситься посреди слова.
+//
+// Ракурс «Диспетчер ДДС» (ddsView): колонка службы обучающегося, слой fields — «Прот.» (протокол
+// реагирования), без «Разг.» (голоса у ДДС нет), последняя колонка — замечания по протоколу.
+func pdfColumns(ddsView bool) []pdfCol {
 	score := func(get func(r *reportRow) *float64) func(int, *reportRow) string {
 		return func(_ int, r *reportRow) string {
 			if !r.Attempt {
@@ -63,53 +70,96 @@ func pdfColumns() []pdfCol {
 			return dashIfNil(get(r))
 		}
 	}
-	return []pdfCol{
+	if ddsView {
+		return withRest([]pdfCol{
+			{"№", 8, "C", func(i int, _ *reportRow) string { return strconv.Itoa(i + 1) }},
+			{"Обучающийся", 36, "L", func(_ int, r *reportRow) string { return r.FullName }},
+			{"Служба", 20, "L", func(_ int, r *reportRow) string {
+				if r.DDS == nil {
+					return ""
+				}
+				return r.DDS.ServiceShort
+			}},
+			{"Карт.", 10, "C", func(_ int, r *reportRow) string { return ifAttempt(r, strconv.Itoa(r.SeqNo)) }},
+			{"Сценарий", 40, "L", func(_ int, r *reportRow) string { return r.Scenario }},
+			{"Статус", 22, "L", func(_ int, r *reportRow) string { return statusText(r) }},
+			{"Затрачено, с", 17, "C", spentText},
+			{"В норме", 13, "C", withinText},
+			{"Прот.", 11, "C", score(func(r *reportRow) *float64 { return r.Fields })},
+			{"Сем.", 11, "C", score(func(r *reportRow) *float64 { return r.Semantic })},
+			{"Грам.", 11, "C", score(func(r *reportRow) *float64 { return r.Grammar })},
+			{"Время", 11, "C", score(func(r *reportRow) *float64 { return r.Timing })},
+			{"Итог", 12, "C", finalText},
+			{"Вердикт", 17, "C", func(_ int, r *reportRow) string { return verdictText(r) }},
+			{"Замечания по протоколу", 0, "L", func(_ int, r *reportRow) string { return shortList(ddsRemarkTexts(r.DDS)) }},
+		})
+	}
+	return withRest([]pdfCol{
 		{"№", 8, "C", func(i int, _ *reportRow) string { return strconv.Itoa(i + 1) }},
 		{"Обучающийся", 38, "L", func(_ int, r *reportRow) string { return r.FullName }},
 		{"Карт.", 10, "C", func(_ int, r *reportRow) string { return ifAttempt(r, strconv.Itoa(r.SeqNo)) }},
 		{"Сценарий", 46, "L", func(_ int, r *reportRow) string { return r.Scenario }},
 		{"Статус", 22, "L", func(_ int, r *reportRow) string { return statusText(r) }},
-		{"Затрачено, с", 17, "C", func(_ int, r *reportRow) string {
-			if r.SpentMs == nil {
-				return ifAttempt(r, "—")
-			}
-			return fmtDecimal(float64(*r.SpentMs)/1000, 1)
-		}},
-		{"В норме", 13, "C", func(_ int, r *reportRow) string {
-			if r.WithinNorm == nil {
-				return ifAttempt(r, "—")
-			}
-			if *r.WithinNorm {
-				return "да"
-			}
-			return "нет"
-		}},
+		{"Затрачено, с", 17, "C", spentText},
+		{"В норме", 13, "C", withinText},
 		{"Поля", 11, "C", score(func(r *reportRow) *float64 { return r.Fields })},
 		{"Сем.", 11, "C", score(func(r *reportRow) *float64 { return r.Semantic })},
 		{"Грам.", 11, "C", score(func(r *reportRow) *float64 { return r.Grammar })},
 		{"Время", 11, "C", score(func(r *reportRow) *float64 { return r.Timing })},
 		{"Разг.", 11, "C", score(func(r *reportRow) *float64 { return r.Dialogue })},
-		{"Итог", 12, "C", func(_ int, r *reportRow) string {
-			if !r.Attempt {
-				return ""
-			}
-			if !r.Evaluated() {
-				return "—"
-			}
-			s := fmtScore(r.Final)
-			if r.Overridden {
-				s += "*"
-			}
-			return s
-		}},
+		{"Итог", 12, "C", finalText},
 		{"Вердикт", 17, "C", func(_ int, r *reportRow) string { return verdictText(r) }},
-		{"Ошибки в карточке", contentW - 238, "L", func(_ int, r *reportRow) string {
-			if len(r.Errors) <= maxErrShown {
-				return strings.Join(r.Errors, "; ")
-			}
-			return strings.Join(r.Errors[:maxErrShown], "; ") + "; и ещё " + strconv.Itoa(len(r.Errors)-maxErrShown)
-		}},
+		{"Ошибки в карточке", 0, "L", func(_ int, r *reportRow) string { return shortList(r.Errors) }},
+	})
+}
+
+// withRest — последняя колонка (w = 0) получает остаток ширины листа.
+func withRest(cols []pdfCol) []pdfCol {
+	fixed := 0.0
+	for _, c := range cols[:len(cols)-1] {
+		fixed += c.w
 	}
+	cols[len(cols)-1].w = contentW - fixed
+	return cols
+}
+
+func spentText(_ int, r *reportRow) string {
+	if r.SpentMs == nil {
+		return ifAttempt(r, "—")
+	}
+	return fmtDecimal(float64(*r.SpentMs)/1000, 1)
+}
+
+func withinText(_ int, r *reportRow) string {
+	if r.WithinNorm == nil {
+		return ifAttempt(r, "—")
+	}
+	if *r.WithinNorm {
+		return "да"
+	}
+	return "нет"
+}
+
+func finalText(_ int, r *reportRow) string {
+	if !r.Attempt {
+		return ""
+	}
+	if !r.Evaluated() {
+		return "—"
+	}
+	s := fmtScore(r.Final)
+	if r.Overridden {
+		s += "*"
+	}
+	return s
+}
+
+// shortList — первые maxErrShown пунктов и «и ещё N» (полный список — в CSV/XLSX).
+func shortList(items []string) string {
+	if len(items) <= maxErrShown {
+		return strings.Join(items, "; ")
+	}
+	return strings.Join(items[:maxErrShown], "; ") + "; и ещё " + strconv.Itoa(len(items)-maxErrShown)
 }
 
 // buildPDF — отчёт для печати/архива: шапка занятия, плитки итогов, средние по слоям, таблица
@@ -144,6 +194,7 @@ func buildPDF(rep *report) (*fpdf.Fpdf, error) {
 	pdfHeader(pdf, rep)
 	pdfSummary(pdf, rep)
 	pdfTable(pdf, rep)
+	pdfProtocol(pdf, rep)
 	pdfNotes(pdf, rep)
 
 	if err := pdf.Error(); err != nil {
@@ -165,20 +216,38 @@ func pdfHeader(pdf *fpdf.Fpdf, rep *report) {
 	pdf.MultiCell(contentW, 5.5, pdfText(m.Title), "", "L", false)
 	pdf.Ln(1)
 
+	pdf.SetFont(pdfFont, "", 8.5)
+	setColor(pdf, cMuted)
+	for _, l := range pdfHeaderLines(rep) {
+		pdf.MultiCell(contentW, 4.2, pdfText(l), "", "L", false)
+	}
+	pdf.Ln(2)
+}
+
+// pdfHeaderLines — строки шапки под названием занятия. Время — в поясе отчёта с подписью пояса.
+func pdfHeaderLines(rep *report) []string {
+	m := rep.Meta
 	voice := "выключен"
 	if m.Settings.Voice.Enabled {
 		voice = "включён"
 	}
-	lines := []string{
-		strings.Join([]string{
-			kindText(m.Kind),
-			"Преподаватель: " + orDash(m.Teacher),
-			"Статус: " + lessonStatusText(m.Status),
-			"Режим: " + modeText(m.Mode),
-			"Норматив: " + strconv.Itoa(m.TimeLimitSec) + " с",
-			"Порог зачёта: " + fmtScore(ptr(roundScore(m.Settings.PassThreshold))) + " баллов",
-			"Голосовой режим: " + voice,
-		}, "   ·   "),
+	first := []string{
+		kindText(m.Kind),
+		"Преподаватель: " + orDash(m.Teacher),
+		"Статус: " + lessonStatusText(m.Status),
+		"Режим: " + modeText(m.Mode),
+		"Норматив: " + strconv.Itoa(m.TimeLimitSec) + " с",
+		"Порог зачёта: " + fmtScore(ptr(roundScore(m.Settings.PassThreshold))) + " баллов",
+		"Голосовой режим: " + voice,
+	}
+	if rep.ddsView() {
+		// Ракурс ДДС: карточка приходит от оператора 112, голоса нет — вместо голосового режима
+		// ракурс и службы обучающихся (attempts.service_id).
+		first = append([]string{first[0], "Ракурс: Диспетчер ДДС",
+			"Служба: " + orDash(strings.Join(rep.ddsServices(), "; "))}, first[1:len(first)-1]...)
+	}
+	return []string{
+		strings.Join(first, "   ·   "),
 		strings.Join([]string{
 			"Начато: " + fmtTime(m.StartedAt, rep.Loc, layoutShort),
 			"Завершено: " + fmtTime(m.FinishedAt, rep.Loc, layoutShort),
@@ -187,12 +256,6 @@ func pdfHeader(pdf *fpdf.Fpdf, rep *report) {
 		}, "   ·   "),
 		"Сценарии: " + orDash(strings.Join(m.Scenarios, "; ")),
 	}
-	pdf.SetFont(pdfFont, "", 8.5)
-	setColor(pdf, cMuted)
-	for _, l := range lines {
-		pdf.MultiCell(contentW, 4.2, pdfText(l), "", "L", false)
-	}
-	pdf.Ln(2)
 }
 
 // pdfSummary — плитки итогов и строка средних по слоям.
@@ -230,24 +293,38 @@ func pdfSummary(pdf *fpdf.Fpdf, rep *report) {
 	}
 	pdf.SetXY(x0, y0+tileH+2.5)
 
-	parts := make([]string, len(layerTitles))
+	pdf.SetFont(pdfFont, "", 8.5)
+	setColor(pdf, cMuted)
+	pdf.MultiCell(contentW, 4.2, pdfText(pdfLayersLine(rep)), "", "L", false)
+	pdf.Ln(2.5)
+}
+
+// pdfLayersLine — средние баллы по слоям (у ДДС слой fields — протокол реагирования, без разговора).
+func pdfLayersLine(rep *report) string {
+	s := &rep.Summary
+	parts := make([]string, 0, len(layerTitles))
 	for i, t := range layerTitles {
-		parts[i] = t + " " + fmtScore(s.AvgLayers[i])
+		if rep.ddsView() {
+			switch layerKeys[i] {
+			case core.LayerFields:
+				t = "Протокол реагирования"
+			case core.LayerDialogue:
+				continue // голоса у ДДС нет
+			}
+		}
+		parts = append(parts, t+" "+fmtScore(s.AvgLayers[i]))
 	}
 	line := "Средние баллы по слоям: " + strings.Join(parts, "   ·   ")
 	if s.AvgSpentMs != nil {
 		line += "      Среднее время обработки: " + scoring.FormatDuration(int(*s.AvgSpentMs+0.5))
 	}
-	pdf.SetFont(pdfFont, "", 8.5)
-	setColor(pdf, cMuted)
-	pdf.MultiCell(contentW, 4.2, pdfText(line), "", "L", false)
-	pdf.Ln(2.5)
+	return line
 }
 
 // pdfTable — таблица с переносом строк в ячейках, ручным разрывом страниц (строка целиком
 // на одной странице) и повтором шапки на каждой новой странице.
 func pdfTable(pdf *fpdf.Fpdf, rep *report) {
-	cols := pdfColumns()
+	cols := pdfColumns(rep.ddsView())
 	limit := pageH - marginB
 
 	header := func() {
@@ -344,6 +421,156 @@ func splitCell(pdf *fpdf.Fpdf, s string, w float64) []string {
 		lines[maxCellLines-1] = strings.TrimRight(lines[maxCellLines-1], " ;,") + "…"
 	}
 	return lines
+}
+
+// pdfProtocol — ракурс ДДС: протокол реагирования по каждой карточке — ожидание эталона, статус
+// и история своей службы, текст действия, замечания оценки (как «Протокол ↔ эталон» в разборе
+// попытки у преподавателя). Время — в поясе отчёта. У оператора 112 раздела нет.
+func pdfProtocol(pdf *fpdf.Fpdf, rep *report) {
+	blocks := pdfProtocolBlocks(rep)
+	if len(blocks) == 0 {
+		return
+	}
+	pdf.Ln(4)
+	setColor(pdf, cText)
+	pdf.SetFont(pdfFont, "B", 11)
+	pdf.CellFormat(contentW, 6, "Протокол реагирования", "", 1, "L", false, 0, "")
+	for _, b := range blocks {
+		pdf.Ln(1.5)
+		setColor(pdf, cText)
+		pdf.SetFont(pdfFont, "B", 8.5)
+		pdf.MultiCell(contentW, 4.4, pdfText(b.title), "", "L", false)
+		pdf.SetFont(pdfFont, "", 8)
+		setColor(pdf, cMuted)
+		for _, l := range b.lines {
+			pdf.MultiCell(contentW, 4, pdfText(l), "", "L", false)
+		}
+	}
+}
+
+// protocolBlock — протокол одной карточки: заголовок и строки.
+type protocolBlock struct {
+	title string
+	lines []string
+}
+
+// pdfProtocolBlocks — протоколы реагирования по карточкам ракурса ДДС (у оператора 112 — пусто).
+func pdfProtocolBlocks(rep *report) []protocolBlock {
+	if !rep.ddsView() {
+		return nil
+	}
+	var out []protocolBlock
+	for i := range rep.Rows {
+		r := &rep.Rows[i]
+		p := r.DDS
+		if p == nil {
+			continue
+		}
+		service := p.ServiceShort
+		if p.ServiceName != "" && p.ServiceName != p.ServiceShort {
+			service += " (" + p.ServiceName + ")"
+		}
+		out = append(out, protocolBlock{
+			title: r.FullName + " · карточка " + strconv.Itoa(r.SeqNo) +
+				" · происшествие № " + strconv.FormatInt(r.IncidentNo, 10) + " · служба: " + service,
+			lines: []string{
+				"Ожидается по эталону: " + expectedText(p.Expected),
+				"Статус службы: " + orDash(p.Status),
+				"История статусов: " + orDash(historyText(p.History, rep.Loc)),
+				"Текст действия: " + orText(p.ActionText, "не заполнен"),
+				"Замечания: " + remarksText(p),
+			},
+		})
+	}
+	return out
+}
+
+// expectedText — ожидание эталона: «решение «Принята» в течение 30 с; обязательные статусы: …».
+func expectedText(e model.ReactionExpectation) string {
+	decision := "«Принята»"
+	if e.Decision == model.DecisionReject {
+		decision = "«Не принята»"
+	}
+	s := "решение " + decision + " в течение " + strconv.Itoa(e.DecisionWithinSec) + " с"
+	if len(e.RequiredStatuses) > 0 {
+		s += "; обязательные статусы: «" + strings.Join(e.RequiredStatuses, "», «") + "»"
+	}
+	return s
+}
+
+// historyText — «27.09.2026 19:54:51 Принята (оп. 227 — комментарий); …» в поясе отчёта.
+func historyText(h []public.ReactionStatusEntry, loc *time.Location) string {
+	parts := make([]string, 0, len(h))
+	for _, e := range h {
+		s := e.At.In(loc).Format(layoutDateTime) + " " + string(e.Status)
+		who := e.Operator
+		if c := strings.TrimSpace(deref(e.Comment)); c != "" {
+			who = strings.TrimSpace(who + " — " + c)
+		}
+		if who != "" {
+			s += " (" + who + ")"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// remarksText — замечания оценки по протоколу с ожидаемым и фактическим значением.
+func remarksText(p *ddsProtocol) string {
+	if !p.Evaluated {
+		return "оценки ещё нет"
+	}
+	if len(p.Remarks) == 0 {
+		return "нет — решение и статусы проставлены без замечаний"
+	}
+	parts := make([]string, 0, len(p.Remarks))
+	for _, rm := range p.Remarks {
+		s := ddsRemarkText(rm)
+		var detail []string
+		if rm.Expected != "" {
+			detail = append(detail, "ожидалось: "+rm.Expected)
+		}
+		if rm.Actual != "" {
+			detail = append(detail, "факт: "+rm.Actual)
+		}
+		if len(detail) > 0 {
+			s += " — " + strings.Join(detail, ", ")
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// ddsRemarkTexts — замечания для колонки таблицы (подпись и вид, как в UI).
+func ddsRemarkTexts(p *ddsProtocol) []string {
+	if p == nil {
+		return nil
+	}
+	out := make([]string, 0, len(p.Remarks))
+	for _, rm := range p.Remarks {
+		out = append(out, ddsRemarkText(rm))
+	}
+	return out
+}
+
+// ddsRemarkText — вид замечания в терминах протокола (как EvaluationView в ракурсе ДДС).
+func ddsRemarkText(rm ddsRemark) string {
+	switch rm.Kind {
+	case "missing":
+		return rm.Label + " (не проставлено)"
+	case "wrong":
+		return rm.Label + " (не совпадает)"
+	case "extra":
+		return rm.Label + " (лишнее действие)"
+	}
+	return rm.Label
+}
+
+func orText(s, empty string) string {
+	if strings.TrimSpace(s) == "" {
+		return empty
+	}
+	return s
 }
 
 // pdfNotes — примечания под таблицей: сноска о корректировках и их причины (ТЗ: изменение

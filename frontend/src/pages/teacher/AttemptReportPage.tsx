@@ -5,6 +5,7 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Card, ErrorState, Field, Loading, Metric, Modal, NumberInput } from '../../components/ui';
 import { EvaluationView } from '../../features/evaluation/EvaluationView';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
+import { DdsProtocolView } from '../../features/dds/DdsProtocolView';
 import { formatDateTime, formatDelta, formatDuration } from '../../shared/utils/time';
 import { labelForPath, labelForValue } from '../../shared/utils/labels';
 import type { ClassifierLabels } from '../../shared/api';
@@ -89,6 +90,7 @@ export function AttemptReportPage() {
   const a = attempt.data;
   const threshold = lesson.data.settings.passThreshold;
   const participant = lesson.data.participants.find((p) => p.userId === a.userId);
+  const dds = a.perspective === 'dds';
 
   return (
     <>
@@ -118,7 +120,7 @@ export function AttemptReportPage() {
 
       <div className="grid grid--4" style={{ marginBottom: 16 }}>
         <Metric label="Дата и время" value={a.submittedAt ? formatDateTime(a.submittedAt).slice(11) : '—'} note={a.submittedAt ? formatDateTime(a.submittedAt).slice(0, 10) : ''} />
-        <Metric label="Время заполнения" value={a.timeSpentMs != null ? formatDuration(a.timeSpentMs) : '—'} />
+        <Metric label={dds ? 'Время работы с карточкой' : 'Время заполнения'} value={a.timeSpentMs != null ? formatDuration(a.timeSpentMs) : '—'} />
         <Metric
           label="Отклонение от норматива"
           value={evaluation ? formatDelta(evaluation.timing.deltaMs) : '—'}
@@ -135,19 +137,45 @@ export function AttemptReportPage() {
 
       <div className="row row--tight" style={{ marginBottom: 14 }}>
         <button type="button" className={`btn ${tab === 'evaluation' ? 'btn--primary' : ''}`} onClick={() => setTab('evaluation')}>Оценка</button>
-        <button type="button" className={`btn ${tab === 'compare' ? 'btn--primary' : ''}`} onClick={() => setTab('compare')}>Карточка ↔ эталон</button>
+        <button type="button" className={`btn ${tab === 'compare' ? 'btn--primary' : ''}`} onClick={() => setTab('compare')}>
+          {dds ? 'Протокол ↔ эталон' : 'Карточка ↔ эталон'}
+        </button>
         <button type="button" className={`btn ${tab === 'timeline' ? 'btn--primary' : ''}`} onClick={() => setTab('timeline')}>Хронология действий</button>
       </div>
 
       {tab === 'evaluation' && (
         evaluation ? (
-          <EvaluationView evaluation={evaluation} threshold={threshold} weights={lesson.data.settings.weights} />
+          <>
+            <EvaluationView evaluation={evaluation} threshold={threshold} weights={lesson.data.settings.weights} />
+            {evaluation.status === 'done' && (
+              <p className="dim small" style={{ marginTop: 8 }}>Автоматическая оценка выполнена</p>
+            )}
+          </>
         ) : (
           <Card><Loading text="Оценка формируется…" /></Card>
         )
       )}
 
-      {tab === 'compare' && (
+      {tab === 'compare' && dds && (
+        <div className="grid grid--2">
+          <Card title={`Протокол реагирования · ${a.actingService?.shortName ?? 'служба'}`}>
+            {a.card ? (
+              <DdsProtocolView
+                attempt={a}
+                card={a.card}
+                expected={scenario.data ? (scenario.data.scoring?.reaction ?? null) : undefined}
+              />
+            ) : (
+              <p className="muted small">Карточка не сохранена.</p>
+            )}
+          </Card>
+          <Card title="Карточка оператора 112">
+            {a.card ? <EtalonCardView card={a.card} /> : <p className="muted small">Карточки нет.</p>}
+          </Card>
+        </div>
+      )}
+
+      {tab === 'compare' && !dds && (
         <div className="grid grid--2">
           <Card title="Карточка обучающегося">
             {a.card ? (

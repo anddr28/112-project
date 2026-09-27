@@ -2545,6 +2545,9 @@ type AssignedLessonsParams struct {
 // LessonReportParams defines parameters for LessonReport.
 type LessonReportParams struct {
 	Format LessonReportParamsFormat `form:"format" json:"format"`
+
+	// Tz Часовой пояс пользователя (имя IANA, как его определяет браузер: Intl.DateTimeFormat().resolvedOptions().timeZone). Время в отчёте и дата в имени файла — в этом поясе, с летним временем по tzdata. Без параметра — UTC. Неизвестное имя — 400 validation (details.fields.tz).
+	Tz *string `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // LessonReportParamsFormat defines parameters for LessonReport.

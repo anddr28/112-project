@@ -5,6 +5,7 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, EmptyState, ErrorState, Loading, Metric } from '../../components/ui';
 import { EvaluationView } from '../../features/evaluation/EvaluationView';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
+import { DdsProtocolView } from '../../features/dds/DdsProtocolView';
 import type { Evaluation } from '../../shared/types';
 
 export function ResultPage() {
@@ -122,7 +123,11 @@ export function ResultPage() {
               </span>
               {evaluation.override && <span className="metric__note">с учётом ручной корректировки</span>}
             </div>
-            <Metric label="Переспрашиваний" value={attempt.data.replayCount} note="повторных обращений к заявителю" />
+            {attempt.data.perspective === 'dds' ? (
+              <Metric label="Служба" value={attempt.data.actingService?.shortName ?? '—'} note="рабочее место диспетчера ДДС" />
+            ) : (
+              <Metric label="Переспрашиваний" value={attempt.data.replayCount} note="повторных обращений к заявителю" />
+            )}
           </div>
 
           <EvaluationView evaluation={evaluation} threshold={threshold} weights={lesson.data.settings.weights} />
@@ -147,9 +152,17 @@ export function ResultPage() {
         </div>
       )}
 
+      {attempt.data.card && attempt.data.perspective === 'dds' && (
+        <div style={{ marginTop: 16 }}>
+          <Card title="Ваш протокол реагирования">
+            <DdsProtocolView attempt={attempt.data} card={attempt.data.card} />
+          </Card>
+        </div>
+      )}
+
       {attempt.data.card && (
         <div style={{ marginTop: 16 }}>
-          <Card title="Ваша карточка">
+          <Card title={attempt.data.perspective === 'dds' ? 'Карточка оператора 112' : 'Ваша карточка'}>
             <EtalonCardView
               card={attempt.data.card}
               highlight={evaluation?.fieldErrors.map((e) => e.field)}

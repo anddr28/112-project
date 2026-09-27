@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../shared/api';
+import { onSessionLost } from '../shared/api/session';
 import type { Role, User } from '../shared/types';
 
 interface AuthState {
@@ -57,6 +58,19 @@ export const useAuth = create<AuthState>((set) => ({
     }
   },
 }));
+
+/*
+ * Сессия потеряна посреди работы (истекла, отозвана, учётку заблокировали):
+ * закрываем локальный сеанс — защищённые маршруты сами уведут на вход, где
+ * пользователь увидит причину.
+ */
+onSessionLost((reason) => {
+  if (!useAuth.getState().user) return;
+  useAuth.setState({
+    user: null,
+    error: reason === 'user_blocked' ? 'Учётная запись заблокирована.' : 'Сеанс завершён. Войдите снова.',
+  });
+});
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: 'Администратор',

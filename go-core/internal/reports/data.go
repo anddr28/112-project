@@ -2,15 +2,20 @@ package reports
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"lct/gocore/internal/core"
+	"lct/gocore/internal/dds"
+	"lct/gocore/internal/gen/public"
 	"lct/gocore/internal/model"
 	"lct/gocore/internal/platform/pg"
 )
@@ -78,6 +83,27 @@ type reportRow struct {
 	AIUnavailable bool
 	WithinNorm    *bool
 	Errors        []string // ошибки карточки, самые весомые первыми: «Подпись (не заполнено)»
+
+	DDS *ddsProtocol // ракурс «Диспетчер ДДС»; у попыток оператора 112 — nil
+}
+
+// ddsProtocol — протокол реагирования попытки ракурса «Диспетчер ДДС» (attempts.service_id
+// задан): те же данные, что преподаватель видит в разборе попытки — статусы своей службы,
+// ожидание эталона (etalons.scoring.reaction), текст действия и замечания оценки.
+type ddsProtocol struct {
+	ServiceName  string // services.name — служба обучающегося
+	ServiceShort string // краткое имя своей службы (карточка, затем справочник); нет — ServiceName
+	Status       string // текущий статус своей службы
+	History      []public.ReactionStatusEntry
+	ActionText   string
+	Expected     model.ReactionExpectation // с умолчаниями («Принята» за 30 с)
+	Evaluated    bool                      // оценка есть — замечания посчитаны
+	Remarks      []ddsRemark
+}
+
+// ddsRemark — замечание по протоколу (evaluations.field_errors, слой dds_reaction).
+type ddsRemark struct {
+	Label, Kind, Expected, Actual string
 }
 
 // Evaluated — итог окончательный: все слои доехали или балл выставил преподаватель.
@@ -110,6 +136,18 @@ SELECT l.id, l.kind, l.title, l.teacher_id, l.created_by, l.mode, l.time_limit_s
   FROM lessons l
   LEFT JOIN users o ON o.id = COALESCE(l.teacher_id, l.created_by)
  WHERE l.id = $1`
+
+// Протокол ракурса ДДС — только попытки со службой обучающегося (attempts.service_id; у 112 —
+// NULL, поэтому отчёт оператора 112 этого набора не получает). Карточка — сданная, иначе черновик.
+const sqlDDS = `
+SELECT a.id, sv.code, sv.name, COALESCE(sv.short_name, ''), COALESCE(a.card, d.data), a.action_text, et.scoring -> 'reaction', e.field_errors
+  FROM attempts a
+  JOIN services sv ON sv.id = a.service_id
+  LEFT JOIN attempt_drafts d ON d.attempt_id = a.id
+  LEFT JOIN etalons et ON et.id = a.etalon_id
+  LEFT JOIN evaluations e ON e.attempt_id = a.id
+ WHERE a.lesson_id = $1 AND a.service_id IS NOT NULL
+ LIMIT $2`
 
 // Все строки отчёта одним запросом. Состав людей — участники занятия ∪ владельцы попыток
 // (у самостоятельной практики участников может не быть). Попытки — по уникальному индексу
@@ -160,6 +198,7 @@ func loadReport(ctx context.Context, q pg.Querier, lessonID uuid.UUID,
 	b := &pgx.Batch{}
 	b.Queue(sqlMeta, lessonID)
 	b.Queue(sqlRows, lessonID, maxRows+1)
+	b.Queue(sqlDDS, lessonID, maxRows+1)
 	br := q.SendBatch(ctx, b)
 	defer br.Close()
 
@@ -174,26 +213,135 @@ func loadReport(ctx context.Context, q pg.Querier, lessonID uuid.UUID,
 		return nil, nil, false, err
 	}
 
-	rows, err := br.Query()
+	out, err := readRows(br, meta.Participants)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("reports: rows: %w", err)
+		return nil, nil, false, err
 	}
-	defer rows.Close()
-	out := make([]reportRow, 0, max(meta.Participants, 16))
-	for rows.Next() {
-		out = append(out, reportRow{})
-		if err := scanRow(rows, &out[len(out)-1]); err != nil {
-			return nil, nil, false, fmt.Errorf("reports: scan row: %w", err)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, false, fmt.Errorf("reports: rows: %w", err)
+	protocols, err := readDDS(br)
+	if err != nil {
+		return nil, nil, false, err
 	}
 	truncated := len(out) > maxRows
 	if truncated {
 		out = out[:maxRows]
 	}
+	for i := range out {
+		if out[i].Attempt {
+			out[i].DDS = protocols[out[i].AttemptID]
+		}
+	}
 	return meta, out, truncated, nil
+}
+
+// readRows — строки отчёта (результат batch закрывается до чтения следующего).
+func readRows(br pgx.BatchResults, participants int) ([]reportRow, error) {
+	rows, err := br.Query()
+	if err != nil {
+		return nil, fmt.Errorf("reports: rows: %w", err)
+	}
+	defer rows.Close()
+	out := make([]reportRow, 0, max(participants, 16))
+	for rows.Next() {
+		out = append(out, reportRow{})
+		if err := scanRow(rows, &out[len(out)-1]); err != nil {
+			return nil, fmt.Errorf("reports: scan row: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reports: rows: %w", err)
+	}
+	return out, nil
+}
+
+// readDDS — протоколы ракурса ДДС по попыткам (пусто у занятий оператора 112). Битый JSON
+// карточки или эталона не роняет отчёт: протокол остаётся без этих частей.
+func readDDS(br pgx.BatchResults) (map[uuid.UUID]*ddsProtocol, error) {
+	rows, err := br.Query()
+	if err != nil {
+		return nil, fmt.Errorf("reports: dds: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]*ddsProtocol{}
+	for rows.Next() {
+		var (
+			id                        uuid.UUID
+			code, name, short         string
+			cardRaw, reactionRaw, fes []byte
+			action                    *string
+		)
+		if err := rows.Scan(&id, &code, &name, &short, &cardRaw, &action, &reactionRaw, &fes); err != nil {
+			return nil, fmt.Errorf("reports: scan dds: %w", err)
+		}
+		out[id] = newDDSProtocol(code, name, short, cardRaw, deref(action), reactionRaw, fes)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reports: dds: %w", err)
+	}
+	return out, nil
+}
+
+func newDDSProtocol(code, name, short string, cardRaw []byte, action string, reactionRaw, fieldErrors []byte) *ddsProtocol {
+	p := &ddsProtocol{ServiceName: name, ServiceShort: orText(short, name), ActionText: strings.TrimSpace(action)}
+	var card public.IncidentCardDraft
+	if len(cardRaw) > 0 && json.Unmarshal(cardRaw, &card) == nil {
+		if sv := dds.FindService(&card, code); sv != nil {
+			p.Status, p.History = string(sv.CurrentStatus), sv.History
+			if sv.ShortName != "" {
+				p.ServiceShort = sv.ShortName
+			}
+		}
+		if p.ActionText == "" {
+			p.ActionText = strings.TrimSpace(card.ActionsTaken)
+		}
+	}
+	var reaction *model.ReactionExpectation
+	if len(reactionRaw) > 0 {
+		reaction = new(model.ReactionExpectation)
+		if json.Unmarshal(reactionRaw, reaction) != nil {
+			reaction = nil
+		}
+	}
+	p.Expected = reaction.Resolved()
+	if fieldErrors != nil {
+		p.Evaluated = true
+		var fe []public.FieldError
+		_ = json.Unmarshal(fieldErrors, &fe)
+		for _, e := range fe {
+			label := e.Label
+			if label == "" {
+				label = e.Field
+			}
+			p.Remarks = append(p.Remarks, ddsRemark{Label: label, Kind: string(e.Kind),
+				Expected: remarkValue(e.Expected), Actual: remarkValue(e.Actual)})
+		}
+	}
+	return p
+}
+
+// remarkValue — значение «ожидалось/факт» замечания как текст (как renderValue в UI).
+func remarkValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case bool:
+		if x {
+			return "да"
+		}
+		return "нет"
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case []any:
+		parts := make([]string, 0, len(x))
+		for _, e := range x {
+			if s := remarkValue(e); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ", ")
+	}
+	return ""
 }
 
 func scanMeta(row pgx.Row) (*lessonMeta, error) {
