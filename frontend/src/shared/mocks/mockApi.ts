@@ -641,7 +641,7 @@ export const mockApi: Api = {
     },
 
     /**
-     * POST /scenarios/{id}/versions (BACKEND DEPENDENCY): копия в статусе
+     * POST /scenarios/{id}/versions (v1.2): копия в статусе
      * draft со ссылкой на родителя. Родитель и занятия на нём не меняются.
      */
     async createVersion(id) {

@@ -45,7 +45,7 @@ export function CallPanel({
 type Phase = 'loading' | 'idle' | 'sending' | 'ended' | 'failed';
 
 interface Notice {
-  kind: 'busy' | 'noSpeech' | 'conflict' | 'error';
+  kind: 'busy' | 'noSpeech' | 'conflict' | 'error' | 'info';
   text: string;
 }
 
@@ -276,6 +276,10 @@ function DialoguePanel({
         );
         setDraft('');
         setPhase(result.callEnded ? 'ended' : 'idle');
+        // Сервис ИИ недоступен: сервер ответил сценарной репликой — говорим об этом прямо.
+        if (result.fallback) {
+          setNotice({ kind: 'info', text: 'Сервис ИИ недоступен — заявитель отвечает репликами из сценария.' });
+        }
       } catch (error) {
         if (hasErrorCode(error, 'caller_busy')) {
           // Номер хода не увеличиваем: повтор пройдёт тем же ходом.
@@ -480,6 +484,7 @@ function DialoguePanel({
               {turn.emotionalState ? ` · ${turn.emotionalState}` : ''}
               {turn.confidence != null && turn.confidence < 0.6 ? ' · распознано неуверенно' : ''}
               {turn.speaker === 'operator' && turn.source === 'stt' ? ' · голосом' : ''}
+              {turn.speaker === 'caller' && turn.source === 'script' && turn.turnNo > 0 ? ' · по сценарию (ИИ недоступен)' : ''}
             </div>
             <div className="call-turn__text">{turn.text}</div>
             {turn.audio?.audioUrl && (

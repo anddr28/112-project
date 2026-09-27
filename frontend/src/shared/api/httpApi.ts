@@ -9,6 +9,7 @@
  */
 
 import { ApiRequestError } from './error';
+import { sessionLost } from './session';
 import type { Api } from './types';
 import type { ApiErrorCode } from '../types';
 
@@ -31,11 +32,43 @@ const STATUS_CODE: Record<number, ApiErrorCode> = {
   503: 'ai_unavailable',
 };
 
+/** Текст для ответа без тела ApiError: так отвечает прокси, когда ядро недоступно. */
+function fallbackMessage(status: number): string {
+  if (status === 502 || status === 503 || status === 504) return 'Сервер недоступен. Повторите попытку позже.';
+  if (status >= 500) return 'Внутренняя ошибка сервера. Повторите попытку позже.';
+  return `Запрос не выполнен (код ${status}).`;
+}
+
 interface RequestOptions {
   body?: unknown;
   form?: FormData;
   query?: Record<string, string | number | undefined>;
   timeoutMs?: number;
+  /** заголовки успешного ответа — нужны постраничным спискам (X-Next-Cursor) */
+  onHeaders?: (headers: Headers) => void;
+}
+
+/** Предохранитель от зацикливания курсора: столько страниц хватает с запасом. */
+const MAX_PAGES = 50;
+
+/**
+ * Список целиком: сервер отдаёт страницами (v1.2, ?limit&cursor), следующая —
+ * по заголовку X-Next-Cursor; нет заголовка — страница последняя.
+ */
+async function requestAll<T>(path: string, limit: number): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    let next: string | null = null;
+    const chunk = await request<T[]>('GET', path, {
+      query: { limit, cursor },
+      onHeaders: (h) => { next = h.get('X-Next-Cursor'); },
+    });
+    items.push(...chunk);
+    if (!next) break;
+    cursor = next;
+  }
+  return items;
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
@@ -72,12 +105,25 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const data: unknown = text ? JSON.parse(text) : undefined;
-  if (res.ok) return data as T;
+  // Прокси или балансировщик при недоступном ядре отвечают не JSON — это не повод падать.
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    if (res.ok) throw new ApiRequestError('internal', 'Сервер вернул некорректный ответ.', { status: res.status });
+    data = undefined;
+  }
+  if (res.ok) {
+    options.onHeaders?.(res.headers);
+    return data as T;
+  }
 
   const err = (data ?? {}) as { code?: ApiErrorCode; message?: string; details?: Record<string, unknown> };
+  // Вход и проверка сессии отвечают 401 штатно; на остальных запросах это потеря сессии.
+  if (res.status === 423) sessionLost('user_blocked');
+  else if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') sessionLost('unauthorized');
   const retry = Number(res.headers.get('Retry-After'));
-  throw new ApiRequestError(err.code ?? STATUS_CODE[res.status] ?? 'internal', err.message ?? `Ошибка сервера (${res.status})`, {
+  throw new ApiRequestError(err.code ?? STATUS_CODE[res.status] ?? 'internal', err.message ?? fallbackMessage(res.status), {
     status: res.status,
     details: err.details,
     retryAfterSec: Number.isFinite(retry) && retry > 0 ? retry : undefined,
@@ -119,8 +165,9 @@ export const httpApi: Api = {
   },
 
   users: {
-    list: () => request('GET', '/users'),
+    list: () => requestAll('/users', 500),
     setBlocked: (userId, blocked) => request('PUT', `/users/${enc(userId)}/blocked`, { body: { blocked } }),
+    create: (input) => request('POST', '/users', { body: input }),
   },
 
   address: {
@@ -132,12 +179,12 @@ export const httpApi: Api = {
   },
 
   scenarios: {
-    list: () => request('GET', '/scenarios'),
+    list: () => requestAll('/scenarios', 100),
     get: (id) => request('GET', `/scenarios/${enc(id)}`),
     create: (input) => request('POST', '/scenarios', { body: input }),
     generate: (input) => request('POST', '/scenarios/generate', { body: input }),
     update: (id, patch) => request('PATCH', `/scenarios/${enc(id)}`, { body: patch }),
-    // BACKEND DEPENDENCY: endpoint объявлен backend, в frontend.v1.yaml его пока нет.
+    // frontend.v1.yaml v1.2 (ветка feat/go-core).
     createVersion: (id) => request('POST', `/scenarios/${enc(id)}/versions`),
     approve: (id) => request('POST', `/scenarios/${enc(id)}/approve`),
     reject: (id, reason) => request('POST', `/scenarios/${enc(id)}/reject`, { body: { reason } }),
@@ -145,12 +192,14 @@ export const httpApi: Api = {
 
   lessons: {
     defaultSettings: () => request('GET', '/lessons/default-settings'),
-    list: () => request('GET', '/lessons'),
+    list: () => requestAll('/lessons', 100),
     get: (id) => request('GET', `/lessons/${enc(id)}`),
     create: (input) => request('POST', '/lessons', { body: input }),
     start: (id) => request('POST', `/lessons/${enc(id)}/start`),
     finish: (id) => request('POST', `/lessons/${enc(id)}/finish`),
-    assigned: () => request('GET', '/lessons/assigned'),
+    assigned: () => requestAll('/lessons/assigned', 50),
+    // Файл отдаёт сервер: обычная ссылка с cookie сессии, без fetch.
+    reportUrl: (lessonId, format) => `${BASE}/lessons/${enc(lessonId)}/report?format=${format}`,
   },
 
   attempts: {
@@ -183,15 +232,23 @@ export const httpApi: Api = {
     get: (attemptId) => request('GET', `/attempts/${enc(attemptId)}/dialogue`),
     turn: ({ attemptId, turnNo, text, audio, clientRecordedAt }) => {
       const path = `/attempts/${enc(attemptId)}/dialogue/turns`;
-      // Контракт: голос — multipart {turnNo, audio, clientRecordedAt}; текст — JSON {turnNo, text}.
-      if (audio) {
+      /*
+       * Контракт: голос — multipart {turnNo, audio, clientRecordedAt}; текст — JSON {turnNo, text}.
+       * При наличии аудио сервер поле text игнорирует и берёт свою расшифровку
+       * (go-core dialogue/input.go). Поэтому текст, который обучающийся видел и
+       * правил, уходит текстовым ходом: иначе в журнал разговора попала бы не его
+       * реплика. Запись отправляется, только когда текста нет. Сервер аудио всё
+       * равно не хранит. GAP: text вместе с audio в multipart — к backend.
+       */
+      const typed = text?.trim();
+      if (audio && !typed) {
         const form = new FormData();
         form.set('turnNo', String(turnNo));
         form.set('audio', audio, 'turn.webm');
         if (clientRecordedAt) form.set('clientRecordedAt', clientRecordedAt);
         return request('POST', path, { form, timeoutMs: DIALOGUE_TIMEOUT_MS });
       }
-      return request('POST', path, { body: { turnNo, text: text ?? '' }, timeoutMs: DIALOGUE_TIMEOUT_MS });
+      return request('POST', path, { body: { turnNo, text: typed ?? '' }, timeoutMs: DIALOGUE_TIMEOUT_MS });
     },
     end: (attemptId) => request('POST', `/attempts/${enc(attemptId)}/dialogue/end`),
   },
@@ -203,5 +260,9 @@ export const httpApi: Api = {
 
   reaction: {
     allowedNext: (current, serviceCode) => request('GET', '/reaction/transitions', { query: { current, serviceCode } }),
+  },
+
+  admin: {
+    health: () => request('GET', '/admin/health'),
   },
 };

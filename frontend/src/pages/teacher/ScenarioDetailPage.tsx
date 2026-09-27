@@ -7,6 +7,7 @@ import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
 import { ScenarioEditor } from '../../features/scenario/ScenarioEditor';
 import { formatDateTime } from '../../shared/utils/time';
 import { labelForPath } from '../../shared/utils/labels';
+import { generationModel } from '../../shared/utils/engine';
 import {
   canEditScenario,
   inUseText,
@@ -46,6 +47,8 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
   const inUse = scenarioInUse(s);
   const versions = all.data ? versionsOf(s, all.data) : [];
   const parent = s.parentScenarioId ? all.data?.find((x) => x.id === s.parentScenarioId) : undefined;
+  // Модель берём у сервера: на стенде без ai-service это имитатор, а не нейросеть.
+  const model = generationModel(s.generationMeta);
 
   function stopEditing() {
     setEditing(false);
@@ -113,7 +116,7 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
               </Badge>
             )}
             <Badge tone="neutral">Эталон, версия {s.etalonVersion}</Badge>
-            {s.source === 'generated' && <Badge tone="warn">Нейросеть</Badge>}
+            {s.source === 'generated' && <Badge tone="warn">{model ? `Сгенерирован · ${model}` : 'Сгенерирован'}</Badge>}
           </div>
         </div>
 
@@ -260,6 +263,13 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
                 <div className="field__label">Создан</div>
                 <div className="small">{formatDateTime(s.createdAt)}</div>
               </div>
+
+              {s.source === 'generated' && model && (
+                <div>
+                  <div className="field__label">Модель генерации</div>
+                  <div className="small mono">{model}</div>
+                </div>
+              )}
 
               {s.validatedBy && (
                 <div>

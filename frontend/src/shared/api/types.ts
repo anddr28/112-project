@@ -13,7 +13,7 @@ import type {
   AttributeGroup, AttributeValue, Difficulty, DialogueState, DialogueTurnResponse,
   DialogueTurnView, Evaluation, IncidentCardDraft,
   IncidentType, Lesson, LessonMode, LessonSettings, ArmPerspective, ReactionStatus, Scenario,
-  ServiceRef, StudentCallScript, TeacherFeedback, User, VoiceSettings,
+  Role, ServiceRef, StudentCallScript, SystemHealth, TeacherFeedback, User, VoiceSettings,
 } from '../types';
 
 export interface LoginInput {
@@ -160,7 +160,7 @@ export interface Api {
   };
 
   users: {
-    /** TODO(backend) J-01: контракта управления пользователями ещё нет. */
+    /** Весь список: сервер отдаёт страницами (v1.2, X-Next-Cursor). */
     list(): Promise<User[]>;
     /**
      * Блокировка и разблокировка учётной записи (J-04 / J-05).
@@ -170,6 +170,11 @@ export interface Api {
      * перестаёт быть валидной при следующей проверке.
      */
     setBlocked(userId: string, blocked: boolean): Promise<User>;
+    /**
+     * Создание учётной записи (POST /users, только admin). Пароль хэширует сервер.
+     * У mock-реализации метода нет: учётки mock — фикстуры.
+     */
+    create?(input: CreateUserInput): Promise<User>;
   };
 
   address: {
@@ -191,8 +196,7 @@ export interface Api {
     update(id: string, patch: Partial<Scenario>): Promise<Scenario>;
     /**
      * Новая версия (draft) — копия сценария со ссылкой на родителя; родитель
-     * не меняется. BACKEND DEPENDENCY: POST /scenarios/{id}/versions ещё нет
-     * в frontend.v1.yaml.
+     * не меняется. POST /scenarios/{id}/versions — frontend.v1.yaml v1.2.
      */
     createVersion(id: string): Promise<Scenario>;
     approve(id: string): Promise<Scenario>;
@@ -212,6 +216,11 @@ export interface Api {
     create(input: CreateLessonInput): Promise<Lesson>;
     start(id: string): Promise<Lesson>;
     finish(id: string): Promise<Lesson>;
+    /**
+     * Адрес выгрузки отчёта по занятию (v1.2: CSV / Excel / PDF). Файл формирует
+     * сервер; у mock-реализации метода нет — кнопки выгрузки не показываются.
+     */
+    reportUrl?(lessonId: string, format: ReportFormat): string;
     /** Занятия текущего обучающегося — пользователь определяется по сессии. */
     assigned(): Promise<Array<{ lesson: Lesson; attempt?: Attempt }>>;
   };
@@ -271,4 +280,24 @@ export interface Api {
     /** В проде приходит внутри AssignedService — здесь отдельно для mock-режима. */
     allowedNext(current: ReactionStatus, serviceCode: string): Promise<AllowedTransition[]>;
   };
+
+  /**
+   * Технический раздел администратора. Состояние контура знает только сервер:
+   * у mock-реализации раздела нет, и экран честно пишет «нет данных».
+   */
+  admin?: {
+    health(): Promise<SystemHealth>;
+  };
+}
+
+export type ReportFormat = 'csv' | 'xlsx' | 'pdf';
+
+/** frontend.v1.yaml: CreateUserInput */
+export interface CreateUserInput {
+  login: string;
+  password: string;
+  role: Role;
+  lastName: string;
+  firstName: string;
+  middleName?: string;
 }

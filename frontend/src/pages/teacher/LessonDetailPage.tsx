@@ -5,6 +5,10 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, ErrorState, LessonStatusBadge, Loading, Metric } from '../../components/ui';
 import { formatDateTime, formatDuration } from '../../shared/utils/time';
 import type { Attempt, Evaluation } from '../../shared/types';
+import type { ReportFormat } from '../../shared/api';
+
+/** Форматы отчёта по занятию (ТЗ: выгрузка в стандартные форматы). */
+const REPORT_FORMATS: Array<[ReportFormat, string]> = [['csv', 'CSV'], ['xlsx', 'Excel'], ['pdf', 'PDF']];
 
 const PARTICIPANT_LABEL: Record<string, { label: string; tone: 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' }> = {
   assigned: { label: 'Назначен', tone: 'neutral' },
@@ -104,6 +108,17 @@ export function LessonDetailPage() {
             >
               Завершить занятие
             </button>
+          )}
+          {/* Отчёт формирует сервер (v1.2); у mock-реализации выгрузки нет. */}
+          {api.lessons.reportUrl && (l.status === 'running' || l.status === 'finished') && (
+            <span className="row row--tight" aria-label="Выгрузка отчёта по занятию">
+              <span className="dim small">Отчёт:</span>
+              {REPORT_FORMATS.map(([format, label]) => (
+                <a key={format} className="btn" href={api.lessons.reportUrl?.(lessonId, format)} download>
+                  {label}
+                </a>
+              ))}
+            </span>
           )}
         </div>
       </div>

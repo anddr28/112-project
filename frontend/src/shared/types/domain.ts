@@ -335,8 +335,7 @@ export interface Scenario {
   /*
    * Версии сценария. Решение backend по lifecycle: сценарий, который уже
    * используется в занятиях, не правится — от него создаётся новая версия
-   * (POST /scenarios/{id}/versions). BACKEND DEPENDENCY: в frontend.v1.yaml
-   * этих полей пока нет; имена согласовать при добавлении в контракт.
+   * (POST /scenarios/{id}/versions). Поля — frontend.v1.yaml v1.2.
    */
   /** используется хотя бы в одном занятии — признак отдаёт сервер, не статус */
   inUse?: boolean;
@@ -536,6 +535,36 @@ export interface TeacherFeedback {
   createdAt: string;
 }
 
+/** Состояние контура для администратора (frontend.v1.yaml v1.2: SystemHealth). */
+export interface SystemHealth {
+  status: 'ok' | 'degraded' | 'down';
+  goCore: { version?: string; uptimeSec?: number; activeSessions?: number; wsConnections?: number };
+  postgres: { ok?: boolean; latencyMs?: number; lastBackupAt?: string };
+  aiService: {
+    ok?: boolean;
+    breakerState?: 'closed' | 'open' | 'half_open';
+    ollama?: boolean;
+    languagetool?: boolean;
+    tts?: boolean;
+    stt?: boolean;
+    modelsAvailable?: string[];
+    profiles?: Record<string, string>;
+    queue?: { running?: number; dialogWaiting?: number; dialogAvgMs?: number; estWaitSec?: number };
+  };
+  /** задачи ai_jobs по статусам */
+  jobs?: Record<string, number>;
+}
+
+/** Чем посчитаны AI-слои: модель и версии по каждому слою (camelCase, как отдаёт go-core). */
+export interface EvaluationEngine {
+  rulesVersion?: string;
+  grammar?: Engine;
+  semantic?: Engine;
+  dialogue?: Engine;
+  /** код отказа слоя, если слой не доехал */
+  errors?: Record<string, string>;
+}
+
 export interface Evaluation {
   attemptId: string;
   /** docs/contracts.md: поля и тайминг считаются мгновенно → partial */
@@ -579,8 +608,8 @@ export interface Evaluation {
     at: string;
   };
   finalScore: number;
-  /** версии движков оценки — воспроизводимость для QA */
-  engine?: Engine;
+  /** модели и версии, которыми считали слои (frontend.v1.yaml: Evaluation.engine) */
+  engine?: EvaluationEngine;
   /** опыт, начисленный за попытку */
   xpEarned?: number;
 }

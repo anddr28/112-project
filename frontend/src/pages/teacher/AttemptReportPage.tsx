@@ -10,6 +10,7 @@ import { labelForPath, labelForValue } from '../../shared/utils/labels';
 import type { ClassifierLabels } from '../../shared/api';
 import type { Evaluation } from '../../shared/types';
 import { scenarioLabel } from '../../features/scenario/versioning';
+import { evaluationEngines } from '../../shared/utils/engine';
 
 const EVENT_LABEL: Record<string, string> = {
   issued: 'Карточка выдана',
@@ -141,7 +142,14 @@ export function AttemptReportPage() {
 
       {tab === 'evaluation' && (
         evaluation ? (
-          <EvaluationView evaluation={evaluation} threshold={threshold} weights={lesson.data.settings.weights} />
+          <>
+            <EvaluationView evaluation={evaluation} threshold={threshold} weights={lesson.data.settings.weights} />
+            {evaluationEngines(evaluation.engine).length > 0 && (
+              <p className="dim small" style={{ marginTop: 8 }}>
+                AI-слои посчитаны: <span className="mono">{evaluationEngines(evaluation.engine).join(', ')}</span>
+              </p>
+            )}
+          </>
         ) : (
           <Card><Loading text="Оценка формируется…" /></Card>
         )
