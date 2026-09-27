@@ -311,3 +311,32 @@ func TestNormKindAndDedupe(t *testing.T) {
 		t.Fatal("короткие входы")
 	}
 }
+
+// Эталон работы диспетчера ДДС (Scoring.reaction, v1.3): туда-обратно без потерь, статусы
+// без повторов, в ai-service не уходит.
+func TestReactionRoundTrip(t *testing.T) {
+	t.Parallel()
+	if ReactionToPublic(nil) != nil || ReactionFromPublic(nil) != nil {
+		t.Fatal("nil должен оставаться nil")
+	}
+	dec := public.ReactionExpectationDecision("reject")
+	within := 45
+	st := []public.ReactionStatus{"Начало реагирования", "Прибытие", "Начало реагирования"}
+	p := &public.Scoring{Reaction: &public.ReactionExpectation{Decision: &dec, DecisionWithinSec: &within, RequiredStatuses: &st}}
+	m := ScoringFromPublic(p, nil)
+	want := &model.ReactionExpectation{Decision: "reject", DecisionWithinSec: 45, RequiredStatuses: []string{"Начало реагирования", "Прибытие"}}
+	if !reflect.DeepEqual(m.Reaction, want) {
+		t.Fatalf("from public: %+v", m.Reaction)
+	}
+	if m.IsZero() {
+		t.Error("scoring только с reaction — не пустой")
+	}
+	back := ScoringToPublic(&m).Reaction
+	if back == nil || *back.Decision != "reject" || *back.DecisionWithinSec != 45 || len(*back.RequiredStatuses) != 2 {
+		t.Fatalf("to public: %+v", back)
+	}
+	raw, _ := json.Marshal(ScoringToContract(&m))
+	if strings.Contains(string(raw), "reaction") {
+		t.Errorf("reaction ушёл в ai-service: %s", raw)
+	}
+}

@@ -124,11 +124,12 @@ type servicesChange struct {
 }
 
 // mutateServices — общий каркас: замок, проверки, изменение fn, запись ключа services,
-// событие, время первого ввода; мониторинг — после COMMIT.
-func (s *Service) mutateServices(ctx context.Context, id uuid.UUID, fn func(l *serviceList, now time.Time) (servicesChange, error)) error {
+// событие, время первого ввода; мониторинг — после COMMIT. role — ракурс попытки (dds:
+// чем можно распоряжаться диспетчеру службы).
+func (s *Service) mutateServices(ctx context.Context, id uuid.UUID, fn func(l *serviceList, role ddsRole, now time.Time) (servicesChange, error)) error {
 	p := core.PrincipalFrom(ctx)
 	return pg.WithTx(ctx, s.pool, func(ctx context.Context, tx pgx.Tx) error {
-		m, raw, missing, err := lockServices(ctx, tx, id)
+		m, role, raw, missing, err := lockServices(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -153,7 +154,7 @@ func (s *Service) mutateServices(ctx context.Context, id uuid.UUID, fn func(l *s
 
 		list := parseServices(raw)
 		now := s.now()
-		change, err := fn(list, now)
+		change, err := fn(list, role, now)
 		if err != nil {
 			return err
 		}
@@ -212,7 +213,10 @@ func (s *Service) addService(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	var out public.AssignedService
-	err = s.mutateServices(r.Context(), id, func(l *serviceList, now time.Time) (servicesChange, error) {
+	err = s.mutateServices(r.Context(), id, func(l *serviceList, role ddsRole, now time.Time) (servicesChange, error) {
+		if role.DDS {
+			return servicesChange{}, errDDSServicesFixed()
+		}
 		if l.findCode(svc.Code) >= 0 {
 			return servicesChange{}, httpx.Conflict("Служба уже назначена")
 		}
@@ -251,7 +255,10 @@ func (s *Service) removeService(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	key := r.PathValue("serviceId")
-	err = s.mutateServices(r.Context(), id, func(l *serviceList, _ time.Time) (servicesChange, error) {
+	err = s.mutateServices(r.Context(), id, func(l *serviceList, role ddsRole, _ time.Time) (servicesChange, error) {
+		if role.DDS {
+			return servicesChange{}, errDDSServicesFixed()
+		}
 		i := l.find(key)
 		if i < 0 {
 			return servicesChange{}, httpx.NotFound("Служба не назначена на карточку")
@@ -294,12 +301,22 @@ func (s *Service) changeServiceStatus(w http.ResponseWriter, r *http.Request) er
 	squad, comment := deref(in.SquadNumber), deref(in.Comment)
 
 	var out public.AssignedService
-	err = s.mutateServices(r.Context(), id, func(l *serviceList, now time.Time) (servicesChange, error) {
+	err = s.mutateServices(r.Context(), id, func(l *serviceList, role ddsRole, now time.Time) (servicesChange, error) {
 		i := l.find(key)
 		if i < 0 {
 			return servicesChange{}, httpx.NotFound("Служба не назначена на карточку")
 		}
 		as := l.items[i]
+		if role.DDS && !strings.EqualFold(as.Code, role.Service) {
+			// Памятка ДДС: статусы реагирования вносит диспетчер той службы, которой они
+			// принадлежат; обучающийся работает за диспетчера своей службы.
+			mine := role.Service
+			if j := l.findCode(role.Service); j >= 0 && l.items[j] != nil {
+				mine = serviceLabel(l.items[j])
+			}
+			return servicesChange{}, httpx.Forbidden("Статус службы «" + serviceLabel(as) +
+				"» проставляет её диспетчер — вы работаете за службу «" + mine + "»")
+		}
 		if err := reaction.Transition(as, in.Status, squad, comment, operator, now); err != nil {
 			return servicesChange{}, transitionError(err)
 		}
@@ -332,6 +349,12 @@ func transitionError(err error) error {
 		return httpx.Conflict(err.Error())
 	}
 	return err
+}
+
+// errDDSServicesFixed — в ракурсе ДДС список оповещения задал оператор 112 при создании
+// карточки; диспетчер службы состав служб не меняет.
+func errDDSServicesFixed() error {
+	return httpx.Conflict("Список оповещения задал оператор 112 — диспетчер службы состав служб не меняет")
 }
 
 func deref(p *string) string {

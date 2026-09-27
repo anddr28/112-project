@@ -58,7 +58,7 @@ SELECT a.user_id, COALESCE(l.teacher_id, l.created_by), d.data
 	// 5000 строк); с ANY — PK index scan.
 	sqlCallScript = `
 SELECT a.user_id, COALESCE(l.teacher_id, l.created_by), a.status, l.settings, s.call_script,
-       t.hashes, t.paths, t.durations
+       t.hashes, t.paths, t.durations, a.service_id IS NOT NULL
   FROM attempts a
   JOIN lessons l ON l.id = a.lesson_id
   JOIN scenarios s ON s.id = a.scenario_id
@@ -74,10 +74,12 @@ SELECT a.user_id, COALESCE(l.teacher_id, l.created_by), a.status, l.settings, s.
 	// ---- accept-call (после sqlLockLessonOfAttempt)
 	sqlLockAccept = `
 SELECT a.user_id, a.lesson_id, COALESCE(l.teacher_id, l.created_by), a.status, a.first_input_at IS NOT NULL,
-       COALESCE(s.call_script->'caller'->>'phone', '')
+       COALESCE(s.call_script->'caller'->>'phone', ''),
+       sv.id IS NOT NULL, COALESCE(sv.code, '')
   FROM attempts a
   JOIN lessons l ON l.id = a.lesson_id
   JOIN scenarios s ON s.id = a.scenario_id
+  LEFT JOIN services sv ON sv.id = a.service_id
  WHERE a.id = $1
    FOR NO KEY UPDATE OF a`
 
@@ -102,10 +104,13 @@ ON CONFLICT (attempt_id) DO UPDATE
 
 	// ---- submit (после sqlLockLessonOfAttempt)
 	sqlLockSubmit = `
-SELECT a.user_id, a.lesson_id, a.status, a.mode, a.call_accepted_at
+SELECT a.user_id, a.lesson_id, a.status, a.mode, a.call_accepted_at, a.service_id IS NOT NULL
   FROM attempts a
  WHERE a.id = $1
    FOR NO KEY UPDATE`
+
+	// Ракурс dds: сдаётся карточка с сервера (поля 112 и статусы служб — только серверные).
+	sqlLockDraftData = `SELECT d.data FROM attempt_drafts d WHERE d.attempt_id = $1 FOR UPDATE`
 
 	sqlSubmit = `
 UPDATE attempts
@@ -123,11 +128,13 @@ UPDATE attempts a SET replay_count = a.replay_count + 1
   FROM lessons l
  WHERE a.id = $1 AND a.user_id = $2 AND a.status = 'in_progress' AND l.id = a.lesson_id
    AND l.settings->'allow_replay' IS DISTINCT FROM 'false'::jsonb
+   AND a.service_id IS NULL
 RETURNING a.replay_count, a.lesson_id`
 
 	sqlReplayDiagnose = `
 SELECT a.user_id, COALESCE(l.teacher_id, l.created_by), a.status,
-       l.settings->'allow_replay' IS DISTINCT FROM 'false'::jsonb
+       l.settings->'allow_replay' IS DISTINCT FROM 'false'::jsonb,
+       a.service_id IS NOT NULL
   FROM attempts a
   JOIN lessons l ON l.id = a.lesson_id
  WHERE a.id = $1`
@@ -153,10 +160,12 @@ UPDATE attempts SET first_input_at = GREATEST($2::timestamptz, call_accepted_at)
 
 	// ---- службы карточки (attempt_drafts.data.services): попытка, затем черновик — под замком.
 	sqlLockServices = `
-SELECT a.user_id, a.lesson_id, a.status, a.first_input_at IS NOT NULL
+SELECT a.user_id, a.lesson_id, a.status, a.first_input_at IS NOT NULL,
+       sv.id IS NOT NULL, COALESCE(sv.code, '')
   FROM attempts a
+  LEFT JOIN services sv ON sv.id = a.service_id
  WHERE a.id = $1
-   FOR NO KEY UPDATE`
+   FOR NO KEY UPDATE OF a`
 
 	sqlLockDraftServices = `
 SELECT d.data->'services' FROM attempt_drafts d WHERE d.attempt_id = $1 FOR UPDATE`
@@ -269,13 +278,25 @@ var (
 	// под замком ON CONFLICT DO UPDATE, как и у действий со службами (FOR UPDATE), так что
 	// слияние видит последнюю закоммиченную версию. Нет строки в RETURNING — не наша/нет/не в
 	// работе (диагностика отдельным запросом только на этом редком пути).
+	// Ракурс dds (у попытки есть служба обучающегося, attempts.service_id): карточку заполнил
+	// оператор 112, диспетчер её не правит — из тела берётся только actionsTaken (черновик
+	// текста действия, восстановление после обрыва), остальное (поля 112 и статусы служб)
+	// остаётся серверным.
 	sqlPutDraft = `
+WITH a AS (
+  SELECT a.id, a.service_id IS NOT NULL AS dds
+    FROM attempts a
+   WHERE a.id = $1 AND a.user_id = $2 AND a.status = 'in_progress')
 INSERT INTO attempt_drafts AS d (attempt_id, data, updated_at)
 SELECT a.id, jsonb_set($3::jsonb, '{services}', ` + servicesMergeSQL("NULL::jsonb", "$3::jsonb->'services'") + `), now()
-  FROM attempts a
- WHERE a.id = $1 AND a.user_id = $2 AND a.status = 'in_progress'
+  FROM a
 ON CONFLICT (attempt_id) DO UPDATE
-   SET data = jsonb_set($3::jsonb, '{services}', ` + servicesMergeSQL("d.data->'services'", "$3::jsonb->'services'") + `),
+   SET data = CASE WHEN (SELECT a.dds FROM a)
+                   THEN jsonb_set(d.data, '{actionsTaken}',
+                          CASE WHEN jsonb_typeof($3::jsonb->'actionsTaken') = 'string'
+                               THEN $3::jsonb->'actionsTaken' ELSE '""'::jsonb END)
+                   ELSE jsonb_set($3::jsonb, '{services}', ` + servicesMergeSQL("d.data->'services'", "$3::jsonb->'services'") + `)
+              END,
        updated_at = EXCLUDED.updated_at
 RETURNING d.updated_at`
 
@@ -413,7 +434,7 @@ func lockLessonThenAttempt(ctx context.Context, tx pgx.Tx, id uuid.UUID, lockSQL
 // lockServices — попытка и её черновик под замком одним round-trip (pgx.Batch в
 // транзакции: операторы выполняются по порядку — сначала attempts, затем attempt_drafts).
 // servicesRaw — data->'services' (nil — ключа нет). draftMissing — строки черновика нет.
-func lockServices(ctx context.Context, tx pgx.Tx, id uuid.UUID) (m attemptMeta, servicesRaw []byte, draftMissing bool, err error) {
+func lockServices(ctx context.Context, tx pgx.Tx, id uuid.UUID) (m attemptMeta, role ddsRole, servicesRaw []byte, draftMissing bool, err error) {
 	b := &pgx.Batch{}
 	b.Queue(sqlLockServices, id)
 	b.Queue(sqlLockDraftServices, id)
@@ -423,17 +444,26 @@ func lockServices(ctx context.Context, tx pgx.Tx, id uuid.UUID) (m attemptMeta, 
 			err = fmt.Errorf("attempts: lock services: %w", cerr)
 		}
 	}()
-	if err = br.QueryRow().Scan(&m.UserID, &m.LessonID, &m.Status, &m.FirstInput); err != nil {
+	if err = br.QueryRow().Scan(&m.UserID, &m.LessonID, &m.Status, &m.FirstInput, &role.DDS, &role.Service); err != nil {
 		if pg.IsNoRows(err) {
-			return m, nil, false, errNotFound()
+			return m, role, nil, false, errNotFound()
 		}
-		return m, nil, false, fmt.Errorf("attempts: lock attempt: %w", err)
+		return m, role, nil, false, fmt.Errorf("attempts: lock attempt: %w", err)
 	}
 	if err = br.QueryRow().Scan(&servicesRaw); err != nil {
 		if pg.IsNoRows(err) {
-			return m, nil, true, nil
+			return m, role, nil, true, nil
 		}
-		return m, nil, false, fmt.Errorf("attempts: lock draft: %w", err)
+		return m, role, nil, false, fmt.Errorf("attempts: lock draft: %w", err)
 	}
-	return m, servicesRaw, false, nil
+	return m, role, servicesRaw, false, nil
+}
+
+// ddsRole — ракурс попытки: DDS — «Диспетчер ДДС» (v1.3), Service — код службы, за
+// диспетчера которой работает обучающийся (статусы — только у неё). Признак ракурса —
+// служба у попытки (attempts.service_id, фиксируется при выдаче), а не настройки занятия:
+// попытки, выданные до миграции 00004, работают по-старому.
+type ddsRole struct {
+	DDS     bool
+	Service string
 }

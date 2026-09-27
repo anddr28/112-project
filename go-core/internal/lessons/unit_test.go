@@ -39,7 +39,7 @@ func TestPickScenario(t *testing.T) {
 		{name: "ни у кого нет эталона", pool: pool, etalons: []uuid.UUID{uuid.Nil, uuid.Nil, uuid.Nil}, want: -1},
 	}
 	for _, tc := range cases {
-		got, ok := pickScenario(tc.pool, tc.etalons, tc.idx, tc.issued, tc.prev)
+		got, ok := pickScenario(tc.pool, tc.etalons, nil, tc.idx, tc.issued, tc.prev)
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("%s: got (%d, %v), want (%d, %v)", tc.name, got, ok, tc.want, tc.ok)
 		}
@@ -50,13 +50,13 @@ func TestPickScenario_NeighboursDiffer(t *testing.T) {
 	t.Parallel()
 	pool := []uuid.UUID{uuid.New(), uuid.New()}
 	et := []uuid.UUID{uuid.New(), uuid.New()}
-	first, _ := pickScenario(pool, et, 0, 0, nil)
-	second, _ := pickScenario(pool, et, 1, 0, nil)
+	first, _ := pickScenario(pool, et, nil, 0, 0, nil)
+	second, _ := pickScenario(pool, et, nil, 1, 0, nil)
 	if first == second {
 		t.Fatal("соседние обучающиеся получили одинаковый сценарий")
 	}
 	// Вторая карточка первого участника — другой сценарий, чем первая.
-	next, _ := pickScenario(pool, et, 0, 1, &pool[first])
+	next, _ := pickScenario(pool, et, nil, 0, 1, &pool[first])
 	if next == first {
 		t.Fatal("вторая карточка повторяет первую")
 	}

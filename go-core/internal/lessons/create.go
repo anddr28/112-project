@@ -16,6 +16,7 @@ import (
 
 	"lct/gocore/internal/convert"
 	"lct/gocore/internal/core"
+	"lct/gocore/internal/dds"
 	"lct/gocore/internal/model"
 	"lct/gocore/internal/platform/httpx"
 	"lct/gocore/internal/platform/ids"
@@ -184,7 +185,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 	s.logAudit(ctx, core.AuditEntry{
 		Action: "lesson.create", EntityType: "lesson", EntityID: in.ID, LessonID: in.ID,
 		After: lessonAudit{
-			Title: d.Title, Mode: d.Mode, Status: core.LessonDraft, TimeLimitSec: d.TimeLimitSec,
+			Title: d.Title, Mode: d.Mode, Perspective: d.Settings.Perspective, Status: core.LessonDraft, TimeLimitSec: d.TimeLimitSec,
 			Scenarios: len(d.ScenarioIDs), Participants: len(d.ParticipantIDs),
 			Voice: d.Settings.Voice.Enabled, PassThreshold: d.Settings.PassThreshold,
 		},
@@ -197,6 +198,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 type lessonAudit struct {
 	Title           string  `json:"title,omitempty"`
 	Mode            string  `json:"mode,omitempty"`
+	Perspective     string  `json:"perspective,omitempty"`
 	Status          string  `json:"status,omitempty"`
 	TimeLimitSec    int     `json:"timeLimitSec,omitempty"`
 	Scenarios       int     `json:"scenarios,omitempty"`
@@ -243,6 +245,11 @@ func parseCreate(b *createBody, snap *settings.Snapshot) (lessonDraft, map[strin
 		ls.Perspective = model.PerspectiveDDS
 	default:
 		fields["perspective"] = "Допустимо: operator112, dds"
+	}
+	// Ракурс ДДС — это и есть «действия с карточками» (ТЗ): карточку заполнил оператор 112,
+	// диспетчер службы её принимает и реагирует. Заполнять карточку со звонка ему не нужно.
+	if ls.IsDDS() && d.Mode == core.ModeCards {
+		fields["mode"] = "В ракурсе «Диспетчер ДДС» — только режим «Действия с карточками» (card_actions)"
 	}
 
 	if b.Difficulty != nil {
@@ -312,6 +319,12 @@ func parseCreate(b *createBody, snap *settings.Snapshot) (lessonDraft, map[strin
 		if v.TtsEnabled != nil {
 			ls.Voice.TTSEnabled = *v.TtsEnabled
 		}
+	}
+	if ls.IsDDS() {
+		// Диспетчер ДДС с заявителем не разговаривает: голос в этом ракурсе всегда выключен
+		// (форма создания может прислать включённый по умолчанию) — вес разговора уйдёт в 0,
+		// остальные слои перенормируются.
+		ls.Voice.Enabled = false
 	}
 
 	// Веса: переданные слои поверх весов платформы, затем фактические (голос выкл —
@@ -411,10 +424,11 @@ type scenarioCheck struct {
 	Checklist  int // etalons.expected_dialogue.checklist (текущей версии)
 	HasBrief   bool
 	CategoryID uuid.UUID
+	Services   []string // службы списка оповещения эталона (известные справочнику, основная первой)
 }
 
 // Размеры массивов считаются в SQL: большой call_script/эталон не едет в Go целиком.
-const sqlScenarioChecksCols = `
+var sqlScenarioChecksCols = `
 SELECT s.id, s.title, s.status, s.mode, s.category_id,
        (s.archived_at IS NOT NULL OR s.status = 'archived'),
        e.id IS NOT NULL,
@@ -422,11 +436,12 @@ SELECT s.id, s.title, s.status, s.mode, s.category_id,
        CASE WHEN jsonb_typeof(s.call_script->'dialogue'->'facts') = 'array'
             THEN jsonb_array_length(s.call_script->'dialogue'->'facts') ELSE 0 END,
        CASE WHEN jsonb_typeof(e.expected_dialogue->'checklist') = 'array'
-            THEN jsonb_array_length(e.expected_dialogue->'checklist') ELSE 0 END
+            THEN jsonb_array_length(e.expected_dialogue->'checklist') ELSE 0 END,
+       COALESCE(` + store.ServiceCodesSQL("e") + `, '')
   FROM scenarios s
   LEFT JOIN etalons e ON e.scenario_id = s.id AND e.is_current`
 
-const sqlScenarioChecks = sqlScenarioChecksCols + `
+var sqlScenarioChecks = sqlScenarioChecksCols + `
  WHERE s.id = ANY($1::uuid[])`
 
 // userCheck — участник занятия.
@@ -436,6 +451,8 @@ type userCheck struct {
 	Status  string
 	Name    string // «Фамилия И. О.» — для сообщения об ошибке
 	Visible bool   // преподаватель видит этого обучающегося в GET /users (см. sqlUserChecks)
+	Service string // код службы профиля ДДС ("" — профиля нет)
+	SvcName string // название службы профиля — для сообщения об ошибке
 }
 
 // sqlUserChecks — участники и их видимость преподавателю $2 (NULL — админ, видно всех).
@@ -451,17 +468,23 @@ SELECT u.id, u.role, u.status, u.last_name, u.first_name, COALESCE(u.middle_name
          OR EXISTS (SELECT 1 FROM group_members gm JOIN groups g ON g.id = gm.group_id
                      WHERE gm.user_id = u.id AND g.teacher_id = $2 AND g.archived_at IS NULL)
          OR EXISTS (SELECT 1 FROM lesson_participants lp JOIN lessons l ON l.id = lp.lesson_id
-                     WHERE lp.user_id = u.id AND l.teacher_id = $2))))
+                     WHERE lp.user_id = u.id AND l.teacher_id = $2)))),
+       COALESCE(sv.code, ''), COALESCE(sv.name, '')
   FROM users u
+  LEFT JOIN services sv ON sv.id = u.service_id
  WHERE u.id = ANY($1::uuid[]) AND u.deleted_at IS NULL`
 
 func scanScenarioCheck(row pgx.Row, c *scenarioCheck) error {
-	var hasBrief *bool
+	var (
+		hasBrief *bool
+		codes    string
+	)
 	if err := row.Scan(&c.ID, &c.Title, &c.Status, &c.Mode, &c.CategoryID, &c.Archived, &c.HasEtalon,
-		&hasBrief, &c.Facts, &c.Checklist); err != nil {
+		&hasBrief, &c.Facts, &c.Checklist, &codes); err != nil {
 		return err
 	}
 	c.HasBrief = hasBrief != nil && *hasBrief
+	c.Services = dds.SplitCodes(codes)
 	return nil
 }
 
@@ -502,7 +525,7 @@ func loadRefs(ctx context.Context, q pg.Querier, scenarioIDs, userIDs []uuid.UUI
 			u                   userCheck
 			last, first, middle string
 		)
-		if err := rows.Scan(&u.ID, &u.Role, &u.Status, &last, &first, &middle, &u.Visible); err != nil {
+		if err := rows.Scan(&u.ID, &u.Role, &u.Status, &last, &first, &middle, &u.Visible, &u.Service, &u.SvcName); err != nil {
 			rows.Close()
 			return nil, nil, fmt.Errorf("lessons: participant checks: %w", err)
 		}
@@ -544,7 +567,9 @@ func checkRefs(d *lessonDraft, scen map[uuid.UUID]scenarioCheck, users map[uuid.
 
 	bad, badTitles = bad[:0], badTitles[:0]
 	for _, id := range d.ScenarioIDs {
-		if c := scen[id]; c.Mode != d.Mode && c.Mode != core.ModeBoth {
+		// Ракурсу ДДС режим сценария не важен: ему нужна только карточка 112 (эталон) —
+		// её одинаково дают сценарии и для «Карточек», и для «Действий с карточками».
+		if c := scen[id]; !d.Settings.IsDDS() && c.Mode != d.Mode && c.Mode != core.ModeBoth {
 			bad, badTitles = append(bad, id.String()), append(badTitles, "«"+c.Title+"»")
 		}
 	}
@@ -590,6 +615,51 @@ func checkRefs(d *lessonDraft, scen map[uuid.UUID]scenarioCheck, users map[uuid.
 			WithDetails(map[string]any{"participantIds": notStudent})
 	case len(blocked) > 0:
 		return httpx.Validation("Учётные записи заблокированы: "+strings.Join(blocked, ", "), map[string]string{"participantIds": "Есть заблокированные участники"})
+	}
+	if d.Settings.IsDDS() {
+		return checkDDS(d, scen, users)
+	}
+	return nil
+}
+
+// checkDDS — ракурс «Диспетчер ДДС» (v1.3): каждая карточка пула кому-то направлена (есть
+// список оповещения из служб справочника), и у каждого участника с профилем ДДС в пуле
+// есть профильная карточка (ТЗ: в ленту попадают только профильные события — иначе
+// обучающемуся на занятии просто нечего делать).
+func checkDDS(d *lessonDraft, scen map[uuid.UUID]scenarioCheck, users map[uuid.UUID]userCheck) *httpx.Error {
+	var bad, badTitles []string
+	for _, id := range d.ScenarioIDs {
+		if c := scen[id]; len(c.Services) == 0 {
+			bad, badTitles = append(bad, id.String()), append(badTitles, "«"+c.Title+"»")
+		}
+	}
+	if len(bad) > 0 {
+		return httpx.Unprocessable("В ракурсе «Диспетчер ДДС» у карточки должен быть список оповещения служб. Нет служб: " + strings.Join(badTitles, ", ")).
+			WithDetails(map[string]any{"scenarioIds": bad})
+	}
+
+	var badUsers, names []string
+	for _, uid := range d.ParticipantIDs {
+		u := users[uid]
+		if u.Service == "" {
+			continue // без профиля обучающийся работает за основную службу любой карточки
+		}
+		found := false
+		for _, id := range d.ScenarioIDs {
+			if _, ok := dds.Pick(scen[id].Services, u.Service); ok {
+				found = true
+				break
+			}
+		}
+		if !found {
+			badUsers = append(badUsers, uid.String())
+			names = append(names, u.Name+" ("+u.SvcName+")")
+		}
+	}
+	if len(badUsers) > 0 {
+		return httpx.Unprocessable("В пуле нет профильных карточек для служб участников: " + strings.Join(names, ", ") +
+			". Добавьте сценарии, где эти службы есть в списке оповещения.").
+			WithDetails(map[string]any{"participantIds": badUsers})
 	}
 	return nil
 }

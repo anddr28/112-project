@@ -55,6 +55,9 @@ type RecInput struct {
 	// SpeechFillerCount / SpeechFillers — dialogue.speech.filler_count / fillers.
 	SpeechFillerCount int
 	SpeechFillers     map[string]int
+	// DDS — ракурс «Диспетчер ДДС» (v1.3): ошибки слоя fields — протокол реагирования своей
+	// службы (dds.Evaluate), а не поля карточки; тексты — про работу диспетчера.
+	DDS bool
 }
 
 // Recommendations — рекомендации по попытке. Никогда не nil.
@@ -87,14 +90,29 @@ func Recommendations(in RecInput) []public.Recommendation {
 			}
 		}
 	}
-	if len(missing) > 0 {
-		out = append(out, rec(RecMissing, public.WeakField,
-			"Перед сохранением карточки заполните обязательные поля:", missing))
+	if in.DDS {
+		// Протокол реагирования: не проставлено / проставлено не то / лишний отказ.
+		if len(missing) > 0 {
+			out = append(out, rec(RecMissing, public.WeakField,
+				"По карточке своей службы не проставлено (Памятка ДДС: решение — в течение норматива, затем статусы с комментариями):", missing))
+		}
+		if len(wrong) > 0 {
+			out = append(out, rec(RecWrong, public.WeakField, "Протокол реагирования расходится с эталоном:", wrong))
+		}
+		if len(extra) > 0 {
+			out = append(out, rec(RecExtra, public.WeakField,
+				"Лишние действия: отказ задерживает выезд службы — «Не принята» только если происшествие не в зоне ответственности или реагирование уже идёт по другой карточке:", extra))
+		}
+	} else {
+		if len(missing) > 0 {
+			out = append(out, rec(RecMissing, public.WeakField,
+				"Перед сохранением карточки заполните обязательные поля:", missing))
+		}
+		if len(wrong) > 0 {
+			out = append(out, rec(RecWrong, public.WeakField, "Значения не совпадают с эталоном:", wrong))
+		}
 	}
-	if len(wrong) > 0 {
-		out = append(out, rec(RecWrong, public.WeakField, "Значения не совпадают с эталоном:", wrong))
-	}
-	if len(extra) > 0 {
+	if len(extra) > 0 && !in.DDS {
 		body := "Назначены службы сверх необходимых — лишний выезд отвлекает силы от других вызовов:"
 		if extraGeneric {
 			body = "Указано больше, чем требует ситуация по эталону:"
@@ -109,14 +127,20 @@ func Recommendations(in RecInput) []public.Recommendation {
 		if d < 0 {
 			d = 0
 		}
+		tip := "Начинайте вводить адрес одновременно с разговором, не дожидаясь конца обращения."
+		if in.DDS {
+			tip = "Сначала — решение «Принята»/«Не принята», затем статусы реагирования и текст действия."
+		}
 		out = append(out, rec(RecTiming, public.SlowTiming,
 			"Норматив заполнения — "+strconv.Itoa(in.Timing.LimitSec)+" с, затрачено "+
-				FormatDuration(in.Timing.SpentMs)+" (превышение на "+FormatDuration(d)+"). "+
-				"Начинайте вводить адрес одновременно с разговором, не дожидаясь конца обращения.", nil))
+				FormatDuration(in.Timing.SpentMs)+" (превышение на "+FormatDuration(d)+"). "+tip, nil))
 	}
 
 	if facts := nonEmpty(in.SemanticMissingFacts); len(facts) > 0 {
 		body := "В описании со слов заявителя не зафиксировано:"
+		if in.DDS {
+			body = "В тексте действия диспетчера не зафиксировано:"
+		}
 		if c := strings.TrimSpace(in.CategoryName); c != "" {
 			body = "Отработайте тему «" + c + "». " + body
 		}

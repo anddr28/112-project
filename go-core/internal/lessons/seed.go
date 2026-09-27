@@ -34,6 +34,7 @@ type demoLesson struct {
 	difficulty   int
 	running      bool
 	voice        bool
+	dds          bool // ракурс «Диспетчер ДДС» (режим card_actions, без голоса)
 }
 
 var demoLessons = []demoLesson{
@@ -44,13 +45,18 @@ var demoLessons = []demoLesson{
 	// Разговор + карточка за 30 с не укладываются: норматив голосового занятия — 3 минуты.
 	{title: "Голосовой приём вызова: пожар", scenarios: []string{demoFireTitle},
 		participants: []string{"student2"}, timeLimitSec: 180, difficulty: 2, running: true, voice: true},
+	// Ракурс ДДС: демо-обучающиеся — диспетчеры ДДС ЖКХ, служба есть в списке оповещения
+	// всех трёх карточек. Норматив карточки — 2 минуты: решение за 30 с, затем статусы и
+	// текст действия.
+	{title: "Диспетчер ДДС ЖКХ: поступившие карточки", scenarios: []string{demoWaterTitle, demoGasTitle, demoFireTitle},
+		participants: []string{"student", "student2"}, timeLimitSec: 120, difficulty: 1, running: true, dds: true},
 }
 
 const demoTeacherLogin = "teacher"
 
 // Сценарий демо по заголовку: сид сценариев — исходный (без parent), подтверждённый;
 // версии-копии с тем же заголовком идут после.
-const sqlDemoScenarios = sqlScenarioChecksCols + `
+var sqlDemoScenarios = sqlScenarioChecksCols + `
  WHERE s.title = ANY($1::text[])
  ORDER BY s.title, (s.status = 'validated') DESC, (s.parent_id IS NULL) DESC, s.created_at, s.id`
 
@@ -126,6 +132,10 @@ func seedLesson(ctx context.Context, tx pgx.Tx, log *slog.Logger, snap *settings
 			log.Warn("lessons: seed: у сценария нет брифа/чек-листа разговора, голосовое занятие пропущено",
 				"lesson", dl.title, "scenario", title)
 			return nil
+		case dl.dds && len(c.Services) == 0:
+			log.Warn("lessons: seed: у сценария нет списка оповещения служб, занятие ДДС пропущено",
+				"lesson", dl.title, "scenario", title)
+			return nil
 		}
 		scenarioIDs = append(scenarioIDs, c.ID)
 	}
@@ -140,6 +150,10 @@ func seedLesson(ctx context.Context, tx pgx.Tx, log *slog.Logger, snap *settings
 	}
 
 	ls := model.DefaultLessonSettings(snap)
+	mode := core.ModeCards
+	if dl.dds {
+		ls.Perspective, mode = model.PerspectiveDDS, core.ModeCardActions
+	}
 	if dl.voice {
 		// input both — демо работает и без гарнитуры (текстом), и с микрофоном. Веса — пресет
 		// формы создания при включении голоса (LessonListPage: 35/20/10/10/25).
@@ -152,7 +166,7 @@ func seedLesson(ctx context.Context, tx pgx.Tx, log *slog.Logger, snap *settings
 	}
 
 	in := lessonInsert{
-		ID: ids.New(), TeacherID: teacherID, Title: dl.title, Mode: core.ModeCards, Status: core.LessonDraft,
+		ID: ids.New(), TeacherID: teacherID, Title: dl.title, Mode: mode, Status: core.LessonDraft,
 		TimeLimitSec: dl.timeLimitSec, Settings: ls, ScenarioIDs: scenarioIDs, ParticipantIDs: participantIDs,
 	}
 	if dl.difficulty > 0 {

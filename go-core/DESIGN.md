@@ -29,7 +29,7 @@ ai-service (`ai-service.v1.yaml` клиент, `go-internal.v1.yaml` callback, s
 5. **Сообщения об ошибках — по-русски**, человекочитаемо (фронт показывает `message` как есть),
    решения фронт принимает по `code`.
 6. Доменные пакеты **не импортируют друг друга** — только `core`, `platform/*`, `settings`,
-   `gen/*`, `store`/`convert`/`model`, `scoring`, `reaction`. Связи между доменами — порты `core/ports.go`,
+   `gen/*`, `store`/`convert`/`model`, `scoring`, `reaction`, `dds`. Связи между доменами — порты `core/ports.go`,
    связывает `internal/app`.
 
 ## 2. Карта пакетов и владельцы
@@ -50,6 +50,7 @@ internal/convert      snake<->camel, карточка АРМ <-> контрак�
 internal/store        общие чтения + сборка public-представлений: Scenario, Lesson, Attempt, DialogueTurn (W1 store)
 internal/scoring      слой 1 (поля), слой 4 (тайминг), веса/итог/вердикт, рекомендации, XP        (W1 scoring)
 internal/reaction     граф статусов реагирования служб, AssignedService                            (W1 classifier)
+internal/dds          ракурс «Диспетчер ДДС»: выбор службы, карточка 112, оценка протокола (чистый)  (v1.3)
 internal/classifier   Catalog (core.Catalog), поиск, опросные карты, подписи, службы, адреса,
                       resolve-services, сид справочников, импорт XLSX + хендлеры                    (W1 classifier)
 internal/aijobs       ai_jobs: Queue, диспетчер, reaper, breaker, sync-клиент, callback-приёмник,
@@ -148,6 +149,30 @@ go-core строит contract `IncidentCard` (`DraftToCard`); сгенериро
   добавленная служба сразу в «Получена службой» с историей `Добавлена`,`Получена службой` (оператор «система»);
   переходы — `reaction`; снять можно только в `Добавлена|Получена службой` (иначе 409);
   подпись оператора в истории — `Principal.OperatorLabel()`.
+
+### Ракурс «Диспетчер ДДС» (v1.3, `lessons.settings.perspective = dds`)
+ТЗ «действия с карточками» + Памятка АРМ-112 для ДДС: карточку создал оператор 112, обучающийся —
+диспетчер **своей** службы. Признак ракурса у попытки — `attempts.service_id` (миграция 00004),
+а не настройки занятия: попытки, выданные раньше, работают по-старому.
+- Создание: только `mode = card_actions`; голос выключается (вес разговора 0, перенормировка);
+  режим сценария не проверяется (нужна только карточка 112 — эталон). 422, если у сценария нет
+  списка оповещения или у участника с профилем ДДС (`users.service_id`) в пуле нет профильной
+  карточки (`details.scenarioIds` / `participantIds`).
+- Список оповещения сценария — `store.ServiceCodesSQL`: службы `card_draft.services` эталона (иначе
+  `card.services_to_notify`), только известные справочнику, основная — первой.
+- Выдача: `dds.Pick` — профиль есть → только сценарии, где его служба в списке оповещения; профиля
+  нет → основная служба карточки. Служба пишется в `attempts.service_id`. Профильных карточек нет
+  (профиль сменили) — участнику не выдаётся ничего, занятие не падает.
+- `accept-call` = взять карточку в работу: без `opening` (хук разговора не зовётся), черновик —
+  `dds.IncomingCard` (поля эталона, АОН, службы оповещения «Получена службой», `actionsTaken` пуст).
+  `call-script` — `turns: []`; `replay` — 409.
+- Службы: добавить/снять — 409 (состав задал 112); статус чужой службы — 403; своей — граф `reaction`.
+- `PUT /draft`: из тела только `actionsTaken`; `submit`: карточка из черновика сервера, из тела —
+  `actionText` (или `card.actionsTaken`).
+- Оценка: слой `fields` = `dds.Evaluate` (`etalons.scoring.reaction`: решение 3, норматив решения
+  от `callAcceptedAt` 2, лишний отказ 1, обязательные статусы по 1; нет эталона — «Принята» за 30 с),
+  `engine.fields.source = dds_reaction`; грамматика — `actionText` + комментарии к статусам своей
+  службы (`reactionComments`); семантика — как `card_actions`; рекомендации — тексты диспетчера.
 
 ### Оценка (слои, веса, итог)
 - `fields` и `timing` — мгновенно в submit (`status=partial`); AI-слои — задачи `evaluate_grammar`

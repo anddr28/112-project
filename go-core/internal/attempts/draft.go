@@ -171,9 +171,10 @@ func (s *Service) callScript(w http.ResponseWriter, r *http.Request) error {
 		cs              model.CallScript
 		hashes, paths   []string
 		durations       []int32
+		dds             bool
 	)
 	err = s.pool.QueryRow(ctx, sqlCallScript, id).Scan(&userID, &ownerID, &status, &settingsScan{dst: &ls},
-		&callScriptScan{dst: &cs}, &hashes, &paths, &durations)
+		&callScriptScan{dst: &cs}, &hashes, &paths, &durations, &dds)
 	if err != nil {
 		if pg.IsNoRows(err) {
 			return errNotFound()
@@ -186,7 +187,9 @@ func (s *Service) callScript(w http.ResponseWriter, r *http.Request) error {
 	cs.Normalize()
 	files := ttsIndex{hashes: hashes, paths: paths, durations: durations}
 	out := studentCallScript(&cs, ls, files)
-	if status == core.AttemptIssued {
+	if status == core.AttemptIssued || dds {
+		// Ракурс dds: диспетчер ДДС с заявителем не говорит — всё, что известно, уже в
+		// карточке 112 (номер заявителя — в АОН).
 		out.Turns = []public.CallTurnView{}
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)

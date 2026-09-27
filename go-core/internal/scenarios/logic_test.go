@@ -1020,3 +1020,66 @@ func TestSeedServices(t *testing.T) {
 		t.Errorf("services %+v", got)
 	}
 }
+
+// Scoring.reaction (v1.3): решение из enum, норматив 5..600 с, обязательные статусы — только
+// те, что диспетчер ставит после решения.
+func TestValidatePatch_Reaction(t *testing.T) {
+	t.Parallel()
+	mk := func(dec string, within int, st ...public.ReactionStatus) *public.ScenarioPatch {
+		r := &public.ReactionExpectation{}
+		if dec != "" {
+			d := public.ReactionExpectationDecision(dec)
+			r.Decision = &d
+		}
+		if within != 0 {
+			r.DecisionWithinSec = &within
+		}
+		if st != nil {
+			r.RequiredStatuses = &st
+		}
+		return &public.ScenarioPatch{Scoring: &public.Scoring{Reaction: r}}
+	}
+	cases := []struct {
+		name  string
+		in    *public.ScenarioPatch
+		field string
+	}{
+		{"корректный", mk("accept", 30, "Начало реагирования", "Прибытие"), ""},
+		{"неизвестное решение", mk("maybe", 0), "scoring.reaction.decision"},
+		{"норматив мал", mk("", 2), "scoring.reaction.decisionWithinSec"},
+		{"норматив велик", mk("", 601), "scoring.reaction.decisionWithinSec"},
+		{"системный статус", mk("", 0, "Получена службой"), "scoring.reaction.requiredStatuses"},
+		{"решение статусом", mk("", 0, "Принята"), "scoring.reaction.requiredStatuses"},
+		{"неизвестный статус", mk("", 0, "Выехали"), "scoring.reaction.requiredStatuses"},
+	}
+	for _, tc := range cases {
+		fields := validatePatch(tc.in)
+		if tc.field == "" && len(fields) != 0 {
+			t.Errorf("%s: лишние ошибки %v", tc.name, fields)
+		}
+		if tc.field != "" && fields[tc.field] == "" {
+			t.Errorf("%s: нет ошибки %s: %v", tc.name, tc.field, fields)
+		}
+	}
+}
+
+// Редактор без поддержки ракурса ДДС присылает scoring без reaction — эталон работы
+// диспетчера сохраняется; присланный reaction — заменяет.
+func TestApplyEtalonPatch_KeepsReaction(t *testing.T) {
+	t.Parallel()
+	s := unitService()
+	d := fireDraft("101")
+	keep := &model.ReactionExpectation{Decision: model.DecisionReject}
+	cur := etalonData{Card: convert.DraftToCard(&d, s.cat), Draft: d,
+		Scoring: model.Scoring{RequiredFields: []string{"address.raw"}, Reaction: keep}}
+
+	next := s.applyEtalonPatch(cur, &public.ScenarioPatch{Scoring: &public.Scoring{RequiredFacts: &[]string{"пожар"}}})
+	if next.Scoring.Reaction == nil || next.Scoring.Reaction.Decision != model.DecisionReject {
+		t.Errorf("reaction потерян: %+v", next.Scoring)
+	}
+	dec := public.ReactionExpectationDecision("accept")
+	next = s.applyEtalonPatch(cur, &public.ScenarioPatch{Scoring: &public.Scoring{Reaction: &public.ReactionExpectation{Decision: &dec}}})
+	if next.Scoring.Reaction == nil || next.Scoring.Reaction.Decision != model.DecisionAccept {
+		t.Errorf("reaction не заменён: %+v", next.Scoring)
+	}
+}

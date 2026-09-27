@@ -125,6 +125,48 @@ type Scoring struct {
 	FieldWeights   map[string]float64 `json:"field_weights,omitempty"`
 	RequiredFacts  []string           `json:"required_facts,omitempty"`
 	ForbiddenFacts []string           `json:"forbidden_facts,omitempty"`
+	// Reaction — эталон работы диспетчера ДДС (ракурс dds, контракт v1.3). Только для
+	// go-core (слой fields в ракурсе dds): в ai-service не уходит.
+	Reaction *ReactionExpectation `json:"reaction,omitempty"`
+}
+
+// Решение диспетчера ДДС по поступившей карточке (ReactionExpectation.decision).
+const (
+	DecisionAccept = "accept" // «Принята»
+	DecisionReject = "reject" // «Не принята»
+)
+
+// Норматив решения по умолчанию и его границы. Памятка ДДС: «Принята»/«Не принята»
+// проставляется в течение 30 секунд после направления карточки в службу.
+const (
+	DefaultDecisionWithinSec = 30
+	MinDecisionWithinSec     = 5
+	MaxDecisionWithinSec     = 600
+)
+
+// ReactionExpectation — etalons.scoring.reaction: что должен сделать диспетчер ДДС со
+// своей службой в поступившей карточке. Нулевые поля — значения по умолчанию (Resolved).
+type ReactionExpectation struct {
+	Decision          string   `json:"decision,omitempty"`            // accept | reject
+	DecisionWithinSec int      `json:"decision_within_sec,omitempty"` // норматив решения, с
+	RequiredStatuses  []string `json:"required_statuses,omitempty"`   // статусы после решения (ReactionStatus)
+}
+
+// Resolved — ожидание с дефолтами (nil — «Принята» за 30 с без обязательных статусов).
+// Неизвестное решение трактуется как accept, норматив зажимается в допустимые границы.
+func (r *ReactionExpectation) Resolved() ReactionExpectation {
+	out := ReactionExpectation{Decision: DecisionAccept, DecisionWithinSec: DefaultDecisionWithinSec}
+	if r == nil {
+		return out
+	}
+	if r.Decision == DecisionReject {
+		out.Decision = DecisionReject
+	}
+	if r.DecisionWithinSec > 0 {
+		out.DecisionWithinSec = min(max(r.DecisionWithinSec, MinDecisionWithinSec), MaxDecisionWithinSec)
+	}
+	out.RequiredStatuses = append([]string(nil), r.RequiredStatuses...)
+	return out
 }
 
 // FieldWeight — вес поля в слое 1 (по умолчанию 1; отрицательный трактуется как 0).
@@ -143,7 +185,7 @@ func (s *Scoring) FieldWeight(path string) float64 {
 // IsZero — правил нет (etalons.scoring = '{}').
 func (s *Scoring) IsZero() bool {
 	return s == nil || (len(s.RequiredFields) == 0 && len(s.FieldWeights) == 0 &&
-		len(s.RequiredFacts) == 0 && len(s.ForbiddenFacts) == 0)
+		len(s.RequiredFacts) == 0 && len(s.ForbiddenFacts) == 0 && s.Reaction == nil)
 }
 
 // ExpectedAction — элемент etalons.expected_actions (режим «действия с карточками»).

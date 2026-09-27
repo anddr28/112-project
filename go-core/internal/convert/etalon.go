@@ -74,6 +74,57 @@ func ScoringToPublic(s *model.Scoring) public.Scoring {
 		}
 		out.FieldWeights = &m
 	}
+	out.Reaction = ReactionToPublic(s.Reaction)
+	return out
+}
+
+// ReactionToPublic — эталон работы диспетчера ДДС для редактора (nil — не задан: действуют
+// значения по умолчанию, редактор их показывает сам).
+func ReactionToPublic(r *model.ReactionExpectation) *public.ReactionExpectation {
+	if r == nil {
+		return nil
+	}
+	out := &public.ReactionExpectation{}
+	if r.Decision != "" {
+		d := public.ReactionExpectationDecision(r.Decision)
+		out.Decision = &d
+	}
+	if r.DecisionWithinSec > 0 {
+		v := r.DecisionWithinSec
+		out.DecisionWithinSec = &v
+	}
+	if len(r.RequiredStatuses) > 0 {
+		st := make([]public.ReactionStatus, len(r.RequiredStatuses))
+		for i, v := range r.RequiredStatuses {
+			st[i] = public.ReactionStatus(v)
+		}
+		out.RequiredStatuses = &st
+	}
+	return out
+}
+
+// ReactionFromPublic — эталон работы диспетчера ДДС из правки (значения уже проверены
+// scenarios.validate). Статусы — без повторов, порядок сохраняется.
+func ReactionFromPublic(p *public.ReactionExpectation) *model.ReactionExpectation {
+	if p == nil {
+		return nil
+	}
+	out := &model.ReactionExpectation{}
+	if p.Decision != nil {
+		out.Decision = string(*p.Decision)
+	}
+	if p.DecisionWithinSec != nil {
+		out.DecisionWithinSec = *p.DecisionWithinSec
+	}
+	if p.RequiredStatuses != nil {
+		seen := make(map[public.ReactionStatus]bool, len(*p.RequiredStatuses))
+		for _, st := range *p.RequiredStatuses {
+			if !seen[st] {
+				seen[st] = true
+				out.RequiredStatuses = append(out.RequiredStatuses, string(st))
+			}
+		}
+	}
 	return out
 }
 
@@ -93,6 +144,7 @@ func ScoringFromPublic(p *public.Scoring, requiredFields *[]string) model.Scorin
 				}
 			}
 		}
+		out.Reaction = ReactionFromPublic(p.Reaction)
 	}
 	if requiredFields != nil {
 		out.RequiredFields = dedupe(nonEmptyStrings(*requiredFields))

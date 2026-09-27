@@ -88,9 +88,10 @@ func newFixture(t *testing.T) *fixture {
 		return mustID(t, pool, `INSERT INTO scenarios (title, category_id, mode, source, status, call_script)
 			VALUES ($1, $2, $3, 'manual', $4, $5::jsonb) RETURNING id`, title, cat, mode, status, script)
 	}
+	// Список оповещения — как у демо-сценариев: ДДС ЖКХ есть везде (ракурс dds).
 	etalon := func(sc uuid.UUID, dialogue string) uuid.UUID {
 		return mustID(t, pool, `INSERT INTO etalons (scenario_id, version, is_current, card, expected_dialogue)
-			VALUES ($1, 1, true, '{}', $2::jsonb) RETURNING id`, sc, dialogue)
+			VALUES ($1, 1, true, '{"services_to_notify": ["101", "zhkh"]}', $2::jsonb) RETURNING id`, sc, dialogue)
 	}
 	f.scFire = scenario(demoFireTitle, f.cat, core.ModeBoth, core.ScenarioValidated, voiceScript)
 	f.etFire = etalon(f.scFire, checklist)

@@ -23,12 +23,14 @@ SELECT a.id, a.lesson_id, a.user_id, a.scenario_id, a.etalon_id, a.mode, a.statu
        l.status, l.settings,
        s.category_id, s.difficulty, s.call_script, c.code, c.name,
        et.card, et.card_draft, et.scoring, et.expected_actions, et.expected_dialogue,
-       EXISTS (SELECT 1 FROM evaluations ev WHERE ev.attempt_id = a.id)
+       EXISTS (SELECT 1 FROM evaluations ev WHERE ev.attempt_id = a.id),
+       COALESCE(sv.code, '')
   FROM attempts a
   JOIN lessons l ON l.id = a.lesson_id
   JOIN scenarios s ON s.id = a.scenario_id
   JOIN classifier_categories c ON c.id = s.category_id
   JOIN etalons et ON et.id = a.etalon_id
+  LEFT JOIN services sv ON sv.id = a.service_id
  WHERE a.id = $1`
 
 // sqlInsertEvaluation — ON CONFLICT DO NOTHING: повторный StartEvaluation (ретрай submit,
@@ -52,6 +54,7 @@ RETURNING id`
 // у готовой оценки (типичное чтение результата) обращения к ai_jobs нет вовсе.
 const evalSelect = `
 SELECT a.id, a.lesson_id, a.user_id, a.status, l.teacher_id, l.created_by, l.status, l.settings, c.name,
+       a.service_id IS NOT NULL,
        e.id, e.etalon_id, e.status, e.fields_score, e.grammar_score, e.semantic_score, e.timing_score,
        e.dialogue_score, e.total_score, e.verdict, e.field_errors, e.grammar_remarks, e.grammar_stats,
        e.semantic, e.dialogue, e.timing, e.layers, e.weights, e.engine, e.needs_review, e.ai_unavailable,

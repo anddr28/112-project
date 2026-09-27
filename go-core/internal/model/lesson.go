@@ -32,6 +32,10 @@ type LessonSettings struct {
 	Perspective     string           `json:"perspective"` // operator112 | dds
 }
 
+// IsDDS — ракурс «Диспетчер ДДС»: карточка приходит от оператора 112, обучающийся
+// работает за диспетчера своей службы (контракт v1.3).
+func (s *LessonSettings) IsDDS() bool { return s.Perspective == PerspectiveDDS }
+
 // DefaultLessonSettings — настройки нового занятия из снимка настроек платформы
 // (s == nil — дефолты миграций). Веса — как в settings.score_weights (dialogue там 0);
 // пересчёт под голосовой режим — забота lessons/scoring.

@@ -12,6 +12,7 @@ import (
 
 	"lct/gocore/internal/convert"
 	"lct/gocore/internal/core"
+	"lct/gocore/internal/dds"
 	"lct/gocore/internal/gen/aiservice"
 	"lct/gocore/internal/gen/components"
 	"lct/gocore/internal/gen/public"
@@ -33,12 +34,18 @@ const (
 	summaryNoActionText  = "Текст действия не заполнен, поэтому смысловую полноту оценить не по чему."
 )
 
+// ruleDDSReaction — источник слоя fields в ракурсе dds (evaluations.engine.fields.source):
+// протокол реагирования своей службы, а не поля карточки.
+const ruleDDSReaction = "dds_reaction"
+
 // Поля свободного текста. Для грамматики — пути формы АРМ (фронт получает замечания с ними
 // как есть и может подсветить поле); для семантики — поля контрактной карточки ответа.
 const (
 	gramFieldDescription  = "description"
 	gramFieldActionsTaken = "actionsTaken"
 	gramFieldActionText   = "actionText"
+	// Комментарии диспетчера ДДС к статусам своей службы (по строке на комментарий).
+	gramFieldReactionComments = "reactionComments"
 
 	semFieldDescription  = "description"
 	semFieldActionsTaken = "actions_taken"
@@ -79,6 +86,7 @@ type startRow struct {
 	ExpectedDialogue *model.ExpectedDialogue
 
 	HasEvaluation bool
+	ServiceCode   string // ракурс dds — служба обучающегося; "" — ракурс 112
 }
 
 func loadStart(ctx context.Context, q pg.Querier, attemptID uuid.UUID) (*startRow, error) {
@@ -94,7 +102,7 @@ func loadStart(ctx context.Context, q pg.Querier, attemptID uuid.UUID) (*startRo
 		&jsonInto{dst: &st.Scoring, col: "etalons.scoring"},
 		&jsonInto{dst: &st.ExpectedActions, col: "etalons.expected_actions"},
 		&expectedDialogueInto{dst: &st.ExpectedDialogue},
-		&st.HasEvaluation,
+		&st.HasEvaluation, &st.ServiceCode,
 	)
 	if err != nil {
 		return nil, err
@@ -131,6 +139,7 @@ func (s *Service) StartEvaluation(ctx context.Context, tx pgx.Tx, attemptID uuid
 		LessonStatus:     st.LessonStatus,
 		Settings:         st.Settings,
 		CategoryName:     st.CategoryName,
+		DDS:              st.ServiceCode != "",
 		Exists:           true,
 		ID:               ids.New(),
 		EtalonID:         st.EtalonID,
@@ -147,8 +156,16 @@ func (s *Service) StartEvaluation(ctx context.Context, tx pgx.Tx, attemptID uuid
 
 	card := decodeDraft(st.Card)
 
-	// ---- слой 1: поля карточки (режим «действия с карточками» — по тексту действия, не по полям)
-	if st.Mode == core.ModeCards {
+	// ---- слой 1: поля карточки (режим «действия с карточками» — по тексту действия, не по
+	// полям; ракурс dds — протокол реагирования своей службы: решение, норматив, статусы)
+	switch {
+	case st.ServiceCode != "": // ракурс dds: у попытки есть служба обучающегося
+		score, errs := dds.Evaluate(card, st.ServiceCode, st.Scoring.Reaction, st.CallAcceptedAt)
+		r.FieldsScore = ptr(round0(score))
+		r.fieldErrs = errs
+		r.Layers[core.LayerFields] = core.LayerDone
+		r.Engine[core.LayerFields] = map[string]any{"source": ruleDDSReaction, "service": st.ServiceCode}
+	case st.Mode == core.ModeCards:
 		etalon := decodeDraft(st.EtalonDraft)
 		if etalon == nil {
 			e := convert.EmptyDraft()
@@ -158,7 +175,7 @@ func (s *Service) StartEvaluation(ctx context.Context, tx pgx.Tx, attemptID uuid
 		r.FieldsScore = ptr(round0(score))
 		r.fieldErrs = errs
 		r.Layers[core.LayerFields] = core.LayerDone
-	} else {
+	default:
 		r.fieldErrs = []public.FieldError{}
 		r.Layers[core.LayerFields] = core.LayerSkipped
 	}
@@ -405,6 +422,13 @@ func grammarTexts(st *startRow, card *public.IncidentCardDraft) []grammarText {
 	if st.Mode == core.ModeCardActions {
 		if t := convert.Deref(st.ActionText); !blank(t) {
 			out = append(out, grammarText{Field: gramFieldActionText, Text: t})
+		}
+		if st.ServiceCode != "" {
+			// Комментарии к статусам — тоже свободный текст диспетчера (причина отказа,
+			// результаты реагирования): Памятка требует их внятными.
+			if t := dds.Comments(card, st.ServiceCode); !blank(t) {
+				out = append(out, grammarText{Field: gramFieldReactionComments, Text: t})
+			}
 		}
 		return out
 	}

@@ -102,7 +102,6 @@ type assignedItem struct {
 	Attempt *public.Attempt `json:"attempt,omitempty"`
 }
 
-
 func (s *Service) assigned(w http.ResponseWriter, r *http.Request) error {
 	p, err := principal(r)
 	if err != nil {
@@ -172,8 +171,10 @@ const sqlAttemptsByIDs = `
 SELECT a.id, a.lesson_id, a.user_id, a.scenario_id, a.etalon_id, a.mode, a.seq_no, a.status,
        a.time_limit_sec, a.issued_at, a.call_accepted_at, a.first_input_at, a.submitted_at,
        a.time_spent_ms, a.replay_count, a.card, a.action_text, a.created_at, a.updated_at,
-       a.incident_no, a.call_ended_at, a.call_end_reason, a.dialogue_turns
+       a.incident_no, a.call_ended_at, a.call_end_reason, a.dialogue_turns,
+       sv.id::text, sv.code, sv.name, sv.short_name, sv.kind
   FROM attempts a
+  LEFT JOIN services sv ON sv.id = a.service_id
  WHERE a.id = ANY($1::uuid[]) AND a.user_id = $2`
 
 // loadCurrentAttempts — попытки по id, разложенные по занятиям (поля занятия — из lessons).
@@ -190,13 +191,18 @@ func loadCurrentAttempts(ctx context.Context, q pg.Querier, userID uuid.UUID, at
 	defer rows.Close()
 	for rows.Next() {
 		a := new(store.AttemptRow)
-		var card []byte
+		var (
+			card                                 []byte
+			svID, svCode, svName, svShort, svKnd *string
+		)
 		if err := rows.Scan(&a.ID, &a.LessonID, &a.UserID, &a.ScenarioID, &a.EtalonID, &a.Mode, &a.SeqNo, &a.Status,
 			&a.TimeLimitSec, &a.IssuedAt, &a.CallAcceptedAt, &a.FirstInputAt, &a.SubmittedAt,
 			&a.TimeSpentMs, &a.ReplayCount, &card, &a.ActionText, &a.CreatedAt, &a.UpdatedAt,
-			&a.IncidentNo, &a.CallEndedAt, &a.CallEndReason, &a.DialogueTurns); err != nil {
+			&a.IncidentNo, &a.CallEndedAt, &a.CallEndReason, &a.DialogueTurns,
+			&svID, &svCode, &svName, &svShort, &svKnd); err != nil {
 			return nil, fmt.Errorf("lessons: current attempts: %w", err)
 		}
+		a.Service = store.ServiceRef(svID, svCode, svName, svShort, svKnd)
 		l, ok := lessons[a.LessonID]
 		if !ok {
 			continue

@@ -43,6 +43,9 @@ type AttemptRow struct {
 	CallEndReason  *string
 	DialogueTurns  int
 
+	// Служба, за диспетчера которой работает обучающийся (ракурс dds; nil — ракурс 112).
+	Service *public.ServiceRef
+
 	LessonTitle     string
 	LessonStatus    string
 	LessonKind      string
@@ -91,9 +94,11 @@ SELECT a.id, a.lesson_id, a.user_id, a.scenario_id, a.etalon_id, a.mode, a.seq_n
        a.time_limit_sec, a.issued_at, a.call_accepted_at, a.first_input_at, a.submitted_at,
        a.time_spent_ms, a.replay_count, a.card, a.action_text, a.created_at, a.updated_at,
        a.incident_no, a.call_ended_at, a.call_end_reason, a.dialogue_turns,
+       sv.id::text, sv.code, sv.name, sv.short_name, sv.kind,
        l.title, l.status, l.kind, l.teacher_id, l.created_by, l.settings
   FROM attempts a
-  JOIN lessons l ON l.id = a.lesson_id`
+  JOIN lessons l ON l.id = a.lesson_id
+  LEFT JOIN services sv ON sv.id = a.service_id`
 
 const (
 	sqlGetAttempt  = attemptColumns + ` WHERE a.id = $1`
@@ -159,14 +164,41 @@ func ListAttempts(ctx context.Context, q pg.Querier, f AttemptFilter) ([]Attempt
 }
 
 func scanAttempt(row pgx.Row, r *AttemptRow) error {
-	return row.Scan(
+	var svID, svCode, svName, svShort, svKind *string
+	err := row.Scan(
 		&r.ID, &r.LessonID, &r.UserID, &r.ScenarioID, &r.EtalonID, &r.Mode, &r.SeqNo, &r.Status,
 		&r.TimeLimitSec, &r.IssuedAt, &r.CallAcceptedAt, &r.FirstInputAt, &r.SubmittedAt,
 		&r.TimeSpentMs, &r.ReplayCount, &rawScan{dst: &r.Card}, &r.ActionText, &r.CreatedAt, &r.UpdatedAt,
 		&r.IncidentNo, &r.CallEndedAt, &r.CallEndReason, &r.DialogueTurns,
+		&svID, &svCode, &svName, &svShort, &svKind,
 		&r.LessonTitle, &r.LessonStatus, &r.LessonKind, &r.LessonTeacherID, &r.LessonCreatedBy,
 		&settingsScan{dst: &r.LessonSettings},
 	)
+	if err != nil {
+		return err
+	}
+	r.Service = ServiceRef(svID, svCode, svName, svShort, svKind)
+	return nil
+}
+
+// ServiceRef — служба попытки из колонок LEFT JOIN services (sv.id::text, code, name,
+// short_name, kind); nil — службы нет (ракурс 112).
+func ServiceRef(id, code, name, short, kind *string) *public.ServiceRef {
+	if id == nil {
+		return nil
+	}
+	return &public.ServiceRef{
+		Id: *id, Code: convert.Deref(code), Name: convert.Deref(name),
+		ShortName: convert.Deref(short), Kind: public.ServiceRefKind(convert.Deref(kind)),
+	}
+}
+
+// ServiceCode — код службы обучающегося в ракурсе dds ("" — ракурс 112).
+func (a *AttemptRow) ServiceCode() string {
+	if a.Service == nil {
+		return ""
+	}
+	return a.Service.Code
 }
 
 // ---------------------------------------------------------------- public
@@ -196,6 +228,10 @@ func AttemptToPublic(r *AttemptRow, now time.Time) public.Attempt {
 		IncidentNo:     strconv.FormatInt(r.IncidentNo, 10),
 		ServerNow:      now.UTC(),
 		Voice:          convert.VoiceToPublic(r.LessonSettings.Voice),
+	}
+	if r.Service != nil {
+		sv := *r.Service
+		out.ActingService = &sv
 	}
 	if r.LessonSettings.Voice.Enabled {
 		turns, ended := r.DialogueTurns, r.CallEndedAt != nil

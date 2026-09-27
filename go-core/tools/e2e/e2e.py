@@ -135,6 +135,67 @@ def wait_for(fn, timeout, what):
     ok(False, f"timeout waiting: {what}")
 
 
+def dds_flow(t, s, student, scs, T):
+    """Ракурс «Диспетчер ДДС» (v1.3): карточка приходит от оператора 112, обучающийся —
+    диспетчер своей службы (демо-студент — профиль ДДС ЖКХ)."""
+    print("== ракурс «Диспетчер ДДС»")
+    pool = [x["id"] for x in scs if x["status"] == "validated" and x["title"] == "Прорыв трубы с горячей водой во дворе"][:1]
+    ok(len(pool) == 1, "демо-сценарий со службой ЖКХ в списке оповещения")
+    body = {"title": "E2E Диспетчер ДДС", "mode": "cards", "perspective": "dds", "timeLimitSec": 120,
+            "scenarioIds": pool, "participantIds": [student["id"]], "passThreshold": 60, "allowReplay": True,
+            "voice": {"enabled": True, "input": "both"}}
+    st, bad = t.req("POST", "/lessons", body)
+    ok(st == 400 and "mode" in bad.get("details", {}).get("fields", {}), "dds + cards -> 400 по mode")
+    body["mode"] = "card_actions"
+    st, lesson = t.req("POST", "/lessons", body)
+    ok(st == 201 and lesson["perspective"] == "dds" and not lesson["settings"]["voice"]["enabled"]
+       and lesson["settings"]["weights"]["dialogue"] == 0, "занятие ДДС: без голоса, вес разговора 0")
+    st, lesson = t.req("POST", f"/lessons/{lesson['id']}/start")
+    ok(st == 200 and lesson["status"] == "running", "старт занятия ДДС")
+
+    st, assigned = s.req("GET", "/lessons/assigned")
+    att = next(x for x in assigned if x["lesson"]["id"] == lesson["id"])["attempt"]
+    ok(att["perspective"] == "dds" and att.get("actingService", {}).get("code") == "zhkh", "попытка: служба профиля (zhkh)")
+    base = f"/attempts/{att['id']}"
+    st, cs = s.req("GET", base + "/call-script")
+    ok(st == 200 and cs["turns"] == [], "диспетчеру ДДС реплики заявителя не отдаются")
+    st, acc = s.req("POST", base + "/accept-call")
+    ok(st == 200 and acc["attempt"]["status"] == "in_progress" and not acc.get("opening"), "карточка взята в работу, звонка нет")
+    st, card = s.req("GET", base + "/draft")
+    mine = next((x for x in card["services"] if x["code"] == "zhkh"), None)
+    other = next((x for x in card["services"] if x["code"] != "zhkh"), None)
+    ok(st == 200 and card["description"] and card["actionsTaken"] == "" and mine and mine["currentStatus"] == "Получена службой",
+       "карточка 112: поля эталона, служба ЖКХ «Получена службой»")
+    st, _ = s.req("POST", base + "/services", {"serviceCode": "101"})
+    ok(st == 409, "состав служб не меняется (409)")
+    st, _ = s.req("POST", base + "/replay")
+    ok(st == 409, "переспросить некого (409)")
+    if other:
+        st, _ = s.req("POST", base + f"/services/{other['serviceId']}/status", {"status": "Принята"})
+        ok(st == 403, "статус чужой службы — 403")
+    st, sv = s.req("POST", base + f"/services/{mine['serviceId']}/status", {"status": "Принята"})
+    ok(st == 200 and sv["currentStatus"] == "Принята", "«Принята» своей службой")
+    st, sv = s.req("POST", base + f"/services/{mine['serviceId']}/status",
+                   {"status": "Начало реагирования", "comment": "Аварийная бригада выехала"})
+    ok(st == 200 and sv["currentStatus"] == "Начало реагирования", "«Начало реагирования» с комментарием")
+    forged = dict(card, description="ПОДМЕНА", actionsTaken="Черновик действия", services=[])
+    st, _ = s.req("PUT", base + "/draft", forged)
+    st, card2 = s.req("GET", base + "/draft")
+    ok(card2["description"] == card["description"] and card2["actionsTaken"] == "Черновик действия"
+       and len(card2["services"]) == len(card["services"]), "автосохранение: только текст действия")
+    st, sub = s.req("POST", base + "/submit", {"card": forged,
+                                              "actionText": "Сообщение принято, дежурная бригада направлена на место"})
+    ok(st == 200 and sub["status"] in ("evaluating", "evaluated") and sub["card"]["description"] == card["description"],
+       "сдача: карточка 112 с сервера")
+    ev = wait_for(lambda: (lambda r: r[1] if r[0] == 200 and r[1]["status"] == "done" else None)(
+        s.req("GET", base + "/evaluation")), T, "оценка ДДС")
+    ok(ev["fieldsScore"] == 100 and ev["fieldErrors"] == [] and ev["engine"]["fields"]["source"] == "dds_reaction",
+       f"протокол реагирования оценён ({ev['fieldsScore']})")
+    ok(ev.get("grammarScore") is not None and ev.get("semanticScore") is not None, "грамматика и смысл текста действия")
+    st, fin = t.req("POST", f"/lessons/{lesson['id']}/finish")
+    ok(st == 200 and fin["status"] == "finished", "завершение занятия ДДС")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="https://localhost:8443")
@@ -329,6 +390,8 @@ def main():
         ok(st == 200 and body[:len(magic)] == magic, f"отчёт {fmt} ({len(body)} байт)")
     st, fin = t.req("POST", f"/lessons/{lesson['id']}/finish")
     ok(st == 200 and fin["status"] == "finished", "завершение занятия")
+
+    dds_flow(t, s, student, scs, T)
 
     print("== администратор")
     adm = Client(a.base)

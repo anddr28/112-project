@@ -16,6 +16,7 @@ import (
 	"lct/gocore/internal/access"
 	"lct/gocore/internal/convert"
 	"lct/gocore/internal/core"
+	"lct/gocore/internal/dds"
 	"lct/gocore/internal/eventlog"
 	"lct/gocore/internal/gen/public"
 	"lct/gocore/internal/platform/httpx"
@@ -90,9 +91,10 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 		var (
 			m     attemptMeta
 			phone string
+			role  ddsRole
 		)
 		lessonStatus, err := lockLessonThenAttempt(ctx, tx, id, sqlLockAccept, func(locked pgx.Row) error {
-			return locked.Scan(&m.UserID, &m.LessonID, &m.OwnerID, &m.Status, &m.FirstInput, &phone)
+			return locked.Scan(&m.UserID, &m.LessonID, &m.OwnerID, &m.Status, &m.FirstInput, &phone, &role.DDS, &role.Service)
 		})
 		if err != nil {
 			return err
@@ -114,7 +116,7 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 			if lessonStatus != core.LessonRunning {
 				return httpx.Conflict("Занятие не идёт — принять вызов нельзя")
 			}
-			if participant, err = s.markAccepted(ctx, tx, id, &m, phone, now); err != nil {
+			if participant, err = s.markAccepted(ctx, tx, id, &m, role, phone, now); err != nil {
 				return err
 			}
 			for _, typ := range [...]string{core.EventCallAccepted, core.EventOpenCard} {
@@ -130,10 +132,13 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 		}
 
 		// Вступительная реплика (голосовой режим; nil — голос выключен). Вызывается и на повторе:
-		// хук идемпотентен и вернёт ту же реплику 0.
-		opening, err := s.dialogue.OnCallAccepted(ctx, tx, id)
-		if err != nil {
-			return fmt.Errorf("attempts: opening turn: %w", err)
+		// хук идемпотентен и вернёт ту же реплику 0. В ракурсе dds звонка нет вовсе — даже если
+		// голос у занятия включили в обход создания.
+		var opening *public.DialogueTurnView
+		if !role.DDS {
+			if opening, err = s.dialogue.OnCallAccepted(ctx, tx, id); err != nil {
+				return fmt.Errorf("attempts: opening turn: %w", err)
+			}
 		}
 		out.Opening = opening
 
@@ -144,6 +149,10 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 			return nil
 		}
 		lessonID := m.LessonID
+		after := map[string]any{"status": core.AttemptInProgress, "callAcceptedAt": now}
+		if role.DDS {
+			after["perspective"], after["service"] = "dds", role.Service
+		}
 		pg.OnCommit(ctx, func() {
 			s.meta.setStatus(id, core.AttemptInProgress, s.now())
 			for i := range events {
@@ -155,7 +164,7 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 			}
 			s.aud.Log(ctx, core.AuditEntry{Action: "attempt.accept", EntityType: "attempt", EntityID: id, LessonID: lessonID,
 				Before: map[string]any{"status": core.AttemptIssued},
-				After:  map[string]any{"status": core.AttemptInProgress, "callAcceptedAt": now}})
+				After:  after})
 		})
 		return nil
 	})
@@ -169,14 +178,24 @@ func (s *Service) acceptCall(w http.ResponseWriter, r *http.Request) error {
 
 // markAccepted — issued → in_progress одним round-trip (pgx.Batch): статус и старт таймера,
 // АОН в черновике, участник → active (+joined_at). Возвращает участника для мониторинга.
-func (s *Service) markAccepted(ctx context.Context, tx pgx.Tx, id uuid.UUID, m *attemptMeta, phone string, now time.Time) (p *public.LessonParticipant, err error) {
-	draft, err := draftWithAON(phone)
-	if err != nil {
-		return nil, fmt.Errorf("attempts: encode draft: %w", err)
-	}
+// Ракурс dds: черновик целиком становится карточкой, поступившей от оператора 112
+// (incomingCard) — диспетчер берёт её в работу, таймер решения стартует сейчас.
+func (s *Service) markAccepted(ctx context.Context, tx pgx.Tx, id uuid.UUID, m *attemptMeta, role ddsRole, phone string, now time.Time) (p *public.LessonParticipant, err error) {
 	b := &pgx.Batch{}
 	b.Queue(sqlAccept, id, now)
-	b.Queue(sqlAcceptDraft, id, draft, phone, now)
+	if role.DDS {
+		card, err := s.incomingCard(ctx, tx, id, role.Service, phone, now)
+		if err != nil {
+			return nil, err
+		}
+		b.Queue(sqlUpsertDraft, id, card, now)
+	} else {
+		draft, err := draftWithAON(phone)
+		if err != nil {
+			return nil, fmt.Errorf("attempts: encode draft: %w", err)
+		}
+		b.Queue(sqlAcceptDraft, id, draft, phone, now)
+	}
 	b.Queue(sqlParticipantActive, m.LessonID, m.UserID, now)
 	br := tx.SendBatch(ctx, b)
 	defer func() {
@@ -195,6 +214,43 @@ func (s *Service) markAccepted(ctx context.Context, tx pgx.Tx, id uuid.UUID, m *
 		return nil, fmt.Errorf("attempts: accept draft: %w", err)
 	}
 	return scanParticipant(br.QueryRow())
+}
+
+// Эталон выданной версии (карточка 112) и службы его списка оповещения — для ракурса dds.
+var sqlIncomingCard = `
+SELECT e.card_draft, COALESCE(` + store.ServiceCodesSQL("e") + `, '')
+  FROM attempts a
+  JOIN etalons e ON e.id = a.etalon_id
+ WHERE a.id = $1`
+
+// incomingCard — карточка, поступившая диспетчеру ДДС (dds.IncomingCard) по эталону версии,
+// зафиксированной при выдаче, в jsonb черновика.
+func (s *Service) incomingCard(ctx context.Context, tx pgx.Tx, id uuid.UUID, acting, phone string, now time.Time) (json.RawMessage, error) {
+	var (
+		raw   []byte
+		codes string
+	)
+	if err := tx.QueryRow(ctx, sqlIncomingCard, id).Scan(&raw, &codes); err != nil {
+		return nil, fmt.Errorf("attempts: incoming card: %w", err)
+	}
+	var etalon *public.IncidentCardDraft
+	if isDraftObject(raw) {
+		etalon = new(public.IncidentCardDraft)
+		if err := json.Unmarshal(raw, etalon); err != nil {
+			return nil, fmt.Errorf("attempts: incoming card: etalons.card_draft: %w", err)
+		}
+		convert.NormalizeDraft(etalon)
+	}
+	var lookup dds.ServiceLookup
+	if s.cat != nil {
+		lookup = s.cat.ServiceByCode
+	}
+	card := dds.IncomingCard(etalon, dds.SplitCodes(codes), acting, phone, lookup, now)
+	b, err := json.Marshal(card)
+	if err != nil {
+		return nil, fmt.Errorf("attempts: encode incoming card: %w", err)
+	}
+	return stripNULEscapes(b), nil
 }
 
 // ---------------------------------------------------------------- POST replay
@@ -239,10 +295,11 @@ func (s *Service) replay(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Service) replayRejected(ctx context.Context, q pg.Querier, p *core.Principal, id uuid.UUID) error {
 	var (
-		m       attemptMeta
-		allowed bool
+		m        attemptMeta
+		allowed  bool
+		perspDDS bool
 	)
-	if err := q.QueryRow(ctx, sqlReplayDiagnose, id).Scan(&m.UserID, &m.OwnerID, &m.Status, &allowed); err != nil {
+	if err := q.QueryRow(ctx, sqlReplayDiagnose, id).Scan(&m.UserID, &m.OwnerID, &m.Status, &allowed, &perspDDS); err != nil {
 		if pg.IsNoRows(err) {
 			return errNotFound()
 		}
@@ -256,6 +313,8 @@ func (s *Service) replayRejected(ctx context.Context, q pg.Querier, p *core.Prin
 		return errNotAccepted()
 	case m.Status != core.AttemptInProgress:
 		return errClosed("переспросить заявителя нельзя")
+	case perspDDS:
+		return httpx.Conflict("Карточка поступила от оператора 112 — звонка нет, переспрашивать некого")
 	case !allowed:
 		return httpx.Conflict("Переспрашивать заявителя в этом занятии нельзя")
 	}
@@ -311,9 +370,10 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request) error {
 			userID, lessonID uuid.UUID
 			status, mode     string
 			callAcceptedAt   *time.Time
+			perspDDS         bool
 		)
 		if _, err := lockLessonThenAttempt(ctx, tx, id, sqlLockSubmit, func(locked pgx.Row) error {
-			return locked.Scan(&userID, &lessonID, &status, &mode, &callAcceptedAt)
+			return locked.Scan(&userID, &lessonID, &status, &mode, &callAcceptedAt, &perspDDS)
 		}); err != nil {
 			return err
 		}
@@ -340,16 +400,25 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request) error {
 		if callAcceptedAt != nil {
 			spentMs = spentMillis(now.Sub(*callAcceptedAt))
 		}
-		// Службы — слиянием с черновиком (servicesMergeSQL): карточка в теле — снимок клиента,
-		// сделанный, возможно, до ответа на последнее действие со службой.
-		var merged []byte
-		if err := tx.QueryRow(ctx, sqlSubmitServices, id, json.RawMessage(bodyServices)).Scan(&merged); err != nil {
-			if bad := badTextError(err); bad != nil {
-				return bad
+		if perspDDS {
+			// Ракурс dds: сдаётся карточка 112 с сервера (поля и статусы служб диспетчер не
+			// правит), от клиента — только текст действия.
+			var err error
+			if card, err = ddsSubmittedCard(ctx, tx, id, card.ActionsTaken); err != nil {
+				return err
 			}
-			return fmt.Errorf("attempts: merge services: %w", err)
+		} else {
+			// Службы — слиянием с черновиком (servicesMergeSQL): карточка в теле — снимок клиента,
+			// сделанный, возможно, до ответа на последнее действие со службой.
+			var merged []byte
+			if err := tx.QueryRow(ctx, sqlSubmitServices, id, json.RawMessage(bodyServices)).Scan(&merged); err != nil {
+				if bad := badTextError(err); bad != nil {
+					return bad
+				}
+				return fmt.Errorf("attempts: merge services: %w", err)
+			}
+			card.Services = decodeServices(merged)
 		}
-		card.Services = decodeServices(merged)
 		for i := range card.Services {
 			reaction.Normalize(&card.Services[i])
 		}
@@ -420,6 +489,28 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request) error {
 	}
 	httpx.WriteJSON(w, http.StatusOK, store.AttemptToPublic(row, s.now()))
 	return nil
+}
+
+// ddsSubmittedCard — сдаваемая карточка ракурса dds: черновик сервера (карточка 112 и
+// статусы служб) под замком, actionsTaken — из тела, если прислан (иначе — автосохранённый).
+func ddsSubmittedCard(ctx context.Context, tx pgx.Tx, id uuid.UUID, actionsTaken string) (*public.IncidentCardDraft, error) {
+	var raw []byte
+	if err := tx.QueryRow(ctx, sqlLockDraftData, id).Scan(&raw); err != nil && !pg.IsNoRows(err) {
+		return nil, fmt.Errorf("attempts: dds draft: %w", err)
+	}
+	card := convert.EmptyDraft()
+	if isDraftObject(raw) {
+		if err := json.Unmarshal(raw, &card); err != nil {
+			// Черновик пишет только сервер (accept-call, службы, actionsTaken) — битым он
+			// быть не должен; если всё же так, сдаём пустую карточку, а не 500.
+			card = convert.EmptyDraft()
+		}
+	}
+	convert.NormalizeDraft(&card)
+	if t := stripNUL(actionsTaken); strings.TrimSpace(t) != "" {
+		card.ActionsTaken = t
+	}
+	return &card, nil
 }
 
 // writeSubmission — карточка/тайминг/статус попытки и черновик = карточка, одним round-trip.

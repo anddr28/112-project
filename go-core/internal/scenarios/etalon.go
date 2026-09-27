@@ -155,6 +155,11 @@ func (s *Service) applyEtalonPatch(cur etalonData, in *public.ScenarioPatch) eta
 			rf = &old
 		}
 		next.Scoring = convert.ScoringFromPublic(in.Scoring, rf)
+		if in.Scoring.Reaction == nil {
+			// Редактор, который не знает про ракурс ДДС (v1.3), присылает scoring без
+			// reaction — эталон работы диспетчера при этом не должен теряться.
+			next.Scoring.Reaction = cur.Scoring.Reaction
+		}
 	case in.RequiredFields != nil:
 		sc := cur.Scoring
 		sc.RequiredFields = cleanStrings(*in.RequiredFields)

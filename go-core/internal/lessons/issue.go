@@ -11,6 +11,7 @@ import (
 
 	"lct/gocore/internal/convert"
 	"lct/gocore/internal/core"
+	"lct/gocore/internal/dds"
 	"lct/gocore/internal/eventlog"
 	"lct/gocore/internal/gen/public"
 	"lct/gocore/internal/model"
@@ -28,7 +29,11 @@ import (
 //     подряд один и тот же сценарий не выдаётся, если в пуле их больше одного;
 //   - etalon_id — текущая версия эталона сценария на момент выдачи;
 //   - time_limit_sec — норматив занятия, incident_no — sequence (DEFAULT), пустой
-//     черновик (convert.EmptyDraft), серверное событие issued {scenarioId}.
+//     черновик (convert.EmptyDraft), серверное событие issued {scenarioId};
+//   - ракурс dds (v1.3): в пуле участника — только профильные сценарии (dds.Pick: служба
+//     профиля есть в списке оповещения; без профиля — любой сценарий со службами), служба
+//     обучающегося фиксируется в attempts.service_id. Профильных карточек нет — участнику
+//     ничего не выдаётся (как исчерпанный лимит), занятие не ломается.
 
 // emptyDraftJSON — attempt_drafts.data новой попытки; форма неизменна — кодируется один раз.
 var emptyDraftJSON = func() json.RawMessage {
@@ -39,25 +44,34 @@ var emptyDraftJSON = func() json.RawMessage {
 	return b
 }()
 
-// Пул сценариев и текущие эталоны в одном порядке (uuid.Nil — у сценария нет эталона).
-const poolColumns = `
+// Пул сценариев и текущие эталоны в одном порядке (uuid.Nil — у сценария нет эталона) и —
+// только в ракурсе dds — службы списка оповещения каждого сценария (строка кодов через
+// запятую, store.ServiceCodesSQL); у ракурса 112 массив пуст и jsonb эталонов не разбирается.
+var poolColumns = `
        ARRAY(SELECT ls.scenario_id FROM lesson_scenarios ls
               WHERE ls.lesson_id = l.id ORDER BY ls.sort_order, ls.scenario_id),
        ARRAY(SELECT COALESCE(e.id, '00000000-0000-0000-0000-000000000000'::uuid)
                FROM lesson_scenarios ls
                LEFT JOIN etalons e ON e.scenario_id = ls.scenario_id AND e.is_current
-              WHERE ls.lesson_id = l.id ORDER BY ls.sort_order, ls.scenario_id)`
+              WHERE ls.lesson_id = l.id ORDER BY ls.sort_order, ls.scenario_id),
+       CASE WHEN l.settings->>'perspective' = 'dds' THEN
+       ARRAY(SELECT COALESCE(` + store.ServiceCodesSQL("e") + `, '')
+               FROM lesson_scenarios ls
+               LEFT JOIN etalons e ON e.scenario_id = ls.scenario_id AND e.is_current
+              WHERE ls.lesson_id = l.id ORDER BY ls.sort_order, ls.scenario_id)
+       ELSE '{}'::text[] END`
 
 // IssueNext: всё, что нужно для решения, — одним запросом; занятие под FOR SHARE, чтобы
 // завершение занятия (UPDATE lessons) не проскочило между проверкой и вставкой попытки.
 // Данные участника — для participantStatus в монитор.
-const sqlIssueInfo = `
+var sqlIssueInfo = `
 SELECT l.status, l.mode, l.time_limit_sec, l.settings,` + poolColumns + `,
        p.user_id IS NOT NULL,
        (SELECT count(*)::int FROM lesson_participants px WHERE px.lesson_id = l.id AND px.user_id < $2),
        COALESCE(la.seq_no, 0), la.scenario_id,
        COALESCE(p.status, ''), p.joined_at, p.finished_at, COALESCE(p.mic_ready, false),
-       COALESCE(u.last_name, ''), COALESCE(u.first_name, ''), COALESCE(u.middle_name, '')
+       COALESCE(u.last_name, ''), COALESCE(u.first_name, ''), COALESCE(u.middle_name, ''),
+       COALESCE((SELECT sv.code FROM services sv WHERE sv.id = u.service_id), '')
   FROM lessons l
   LEFT JOIN lesson_participants p ON p.lesson_id = l.id AND p.user_id = $2
   LEFT JOIN users u ON u.id = p.user_id
@@ -73,8 +87,9 @@ SELECT l.status, l.mode, l.time_limit_sec, l.settings,` + poolColumns + `,
 const sqlInsertAttempt = `
 WITH ins AS (
   INSERT INTO attempts (id, lesson_id, user_id, scenario_id, etalon_id, mode, seq_no, status,
-                        time_limit_sec, issued_at)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, 'issued', $8, $9)
+                        time_limit_sec, issued_at, service_id)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, 'issued', $8, $9,
+          (SELECT sv.id FROM services sv WHERE sv.code = NULLIF($11::text, '')))
   ON CONFLICT (lesson_id, user_id, seq_no) DO NOTHING
   RETURNING id
 ), d AS (
@@ -95,6 +110,8 @@ func (s *Service) IssueNext(ctx context.Context, tx pgx.Tx, lessonID, userID uui
 		timeLimit           int
 		rawSettings         []byte
 		pool, etalons       []uuid.UUID
+		codes               []string
+		profile             string
 		isParticipant       bool
 		participantIdx      int
 		lastSeq             int
@@ -103,9 +120,9 @@ func (s *Service) IssueNext(ctx context.Context, tx pgx.Tx, lessonID, userID uui
 		last, first, middle string
 	)
 	err := tx.QueryRow(ctx, sqlIssueInfo, lessonID, userID).Scan(
-		&status, &mode, &timeLimit, &rawSettings, &pool, &etalons,
+		&status, &mode, &timeLimit, &rawSettings, &pool, &etalons, &codes,
 		&isParticipant, &participantIdx, &lastSeq, &lastScenario,
-		&pr.Status, &pr.JoinedAt, &pr.FinishedAt, &pr.MicReady, &last, &first, &middle,
+		&pr.Status, &pr.JoinedAt, &pr.FinishedAt, &pr.MicReady, &last, &first, &middle, &profile,
 	)
 	if err != nil {
 		if pg.IsNoRows(err) {
@@ -120,8 +137,16 @@ func (s *Service) IssueNext(ctx context.Context, tx pgx.Tx, lessonID, userID uui
 	if lastSeq >= ls.CardsPerStudent {
 		return uuid.Nil, false, nil
 	}
-	pick, ok := pickScenario(pool, etalons, participantIdx, lastSeq, lastScenario)
+	acting := actingServices(&ls, codes, profile)
+	pick, ok := pickScenario(pool, etalons, acting, participantIdx, lastSeq, lastScenario)
 	if !ok {
+		if ls.IsDDS() {
+			// Профильных карточек для службы обучающегося в пуле нет (профиль сменили после
+			// создания занятия) — участнику выдавать нечего.
+			s.log.Warn("lessons: issue: в пуле нет профильных карточек для службы обучающегося",
+				"lesson", lessonID, "user", userID, "service", profile)
+			return uuid.Nil, false, nil
+		}
 		return uuid.Nil, false, fmt.Errorf("lessons: issue: в пуле занятия %s нет сценария с эталоном", lessonID)
 	}
 
@@ -130,7 +155,7 @@ func (s *Service) IssueNext(ctx context.Context, tx pgx.Tx, lessonID, userID uui
 	id := ids.New()
 	var got uuid.UUID
 	err = tx.QueryRow(ctx, sqlInsertAttempt, id, lessonID, userID, pool[pick], etalons[pick], mode, seq,
-		timeLimit, now, emptyDraftJSON).Scan(&got)
+		timeLimit, now, emptyDraftJSON, actingAt(acting, pick)).Scan(&got)
 	if pg.IsNoRows(err) {
 		// Номер уже выдан параллельной транзакцией (она и опубликует) — карточка есть.
 		if err := tx.QueryRow(ctx, sqlAttemptBySeq, lessonID, userID, seq).Scan(&got); err != nil {
@@ -156,19 +181,44 @@ func (s *Service) IssueNext(ctx context.Context, tx pgx.Tx, lessonID, userID uui
 	return id, true, nil
 }
 
+// actingServices — ракурс dds: служба обучающегося для каждого сценария пула ("" — сценарий
+// ему не выдаётся, dds.Pick). codes — строки кодов из poolColumns. nil — ракурс 112:
+// выдаётся любой сценарий, службы у попытки нет.
+func actingServices(ls *model.LessonSettings, codes []string, profile string) []string {
+	if !ls.IsDDS() {
+		return nil
+	}
+	out := make([]string, len(codes))
+	for i, c := range codes {
+		if code, ok := dds.Pick(dds.SplitCodes(c), profile); ok {
+			out[i] = code
+		}
+	}
+	return out
+}
+
+// actingAt — служба обучающегося для выбранного сценария ("" — ракурс 112).
+func actingAt(acting []string, i int) string {
+	if i < 0 || i >= len(acting) {
+		return ""
+	}
+	return acting[i]
+}
+
 // pickScenario — индекс сценария в пуле для очередной карточки. Сначала — по кругу от
-// (индекс участника + выдано); сценарии без эталона пропускаются; повтор предыдущего
-// сценария — только если другого нет.
-func pickScenario(pool, etalons []uuid.UUID, participantIdx, issued int, prev *uuid.UUID) (int, bool) {
+// (индекс участника + выдано); сценарии без эталона пропускаются, в ракурсе dds — и
+// непрофильные (acting[i] == ""; acting == nil — ракурс 112, фильтра нет); повтор
+// предыдущего сценария — только если другого нет.
+func pickScenario(pool, etalons []uuid.UUID, acting []string, participantIdx, issued int, prev *uuid.UUID) (int, bool) {
 	n := len(pool)
-	if n == 0 || len(etalons) != n {
+	if n == 0 || len(etalons) != n || (acting != nil && len(acting) != n) {
 		return -1, false
 	}
 	start := (participantIdx%n + issued%n) % n
 	fallback := -1
 	for k := 0; k < n; k++ {
 		i := (start + k) % n
-		if etalons[i] == uuid.Nil {
+		if etalons[i] == uuid.Nil || (acting != nil && acting[i] == "") {
 			continue
 		}
 		if n > 1 && prev != nil && pool[i] == *prev {
@@ -186,17 +236,19 @@ func pickScenario(pool, etalons []uuid.UUID, participantIdx, issued int, prev *u
 
 // issuePlan — очередная карточка одного участника.
 type issuePlan struct {
-	UserID     uuid.UUID
-	AttemptID  uuid.UUID
-	ScenarioID uuid.UUID
-	EtalonID   uuid.UUID
-	SeqNo      int
+	UserID      uuid.UUID
+	AttemptID   uuid.UUID
+	ScenarioID  uuid.UUID
+	EtalonID    uuid.UUID
+	SeqNo       int
+	ServiceCode string // ракурс dds — служба обучающегося; "" — ракурс 112
 }
 
 // Участники по user_id (тот же порядок, что индекс участника в IssueNext) и последняя
 // выданная карточка каждого.
 const sqlParticipantsPlan = `
-SELECT p.user_id, COALESCE(la.seq_no, 0), la.scenario_id
+SELECT p.user_id, COALESCE(la.seq_no, 0), la.scenario_id,
+       COALESCE((SELECT sv.code FROM users u JOIN services sv ON sv.id = u.service_id WHERE u.id = p.user_id), '')
   FROM lesson_participants p
   LEFT JOIN LATERAL (SELECT a.seq_no, a.scenario_id FROM attempts a
                       WHERE a.lesson_id = p.lesson_id AND a.user_id = p.user_id
@@ -210,10 +262,11 @@ SELECT p.user_id, COALESCE(la.seq_no, 0), la.scenario_id
 const sqlInsertAttemptsBulk = `
 WITH ins AS (
   INSERT INTO attempts (id, lesson_id, user_id, scenario_id, etalon_id, mode, seq_no, status,
-                        time_limit_sec, issued_at)
-  SELECT t.id, $1, t.user_id, t.scenario_id, t.etalon_id, $2, t.seq_no, 'issued', $3, $4
-    FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::uuid[], $9::int[])
-         AS t(id, user_id, scenario_id, etalon_id, seq_no)
+                        time_limit_sec, issued_at, service_id)
+  SELECT t.id, $1, t.user_id, t.scenario_id, t.etalon_id, $2, t.seq_no, 'issued', $3, $4,
+         (SELECT sv.id FROM services sv WHERE sv.code = NULLIF(t.service_code, ''))
+    FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::uuid[], $9::int[], $11::text[])
+         AS t(id, user_id, scenario_id, etalon_id, seq_no, service_code)
   ON CONFLICT (lesson_id, user_id, seq_no) DO NOTHING
   RETURNING id, scenario_id
 ), d AS (
@@ -234,29 +287,36 @@ type issuedEvent struct {
 
 // planFromRows — очередная карточка каждому участнику, у кого лимит не исчерпан
 // (rows — результат sqlParticipantsPlan; принимаются строки, а не Querier, чтобы запрос
-// можно было отправить в одном пакете со сменой статуса занятия).
-func planFromRows(rows pgx.Rows, lessonID uuid.UUID, cards int, pool, etalons []uuid.UUID) ([]issuePlan, error) {
+// можно было отправить в одном пакете со сменой статуса занятия). codes — службы
+// сценариев пула (ракурс dds, poolColumns); участник без профильных карточек пропускается.
+func planFromRows(rows pgx.Rows, lessonID uuid.UUID, ls *model.LessonSettings, pool, etalons []uuid.UUID, codes []string) ([]issuePlan, error) {
 	defer rows.Close()
 	var (
 		plans   []issuePlan
 		userID  uuid.UUID
 		lastSeq int
 		prev    *uuid.UUID
+		profile string
 	)
 	for idx := 0; rows.Next(); idx++ {
 		prev = nil
-		if err := rows.Scan(&userID, &lastSeq, &prev); err != nil {
+		if err := rows.Scan(&userID, &lastSeq, &prev, &profile); err != nil {
 			return nil, fmt.Errorf("lessons: plan: %w", err)
 		}
-		if lastSeq >= cards {
+		if lastSeq >= ls.CardsPerStudent {
 			continue
 		}
-		pick, ok := pickScenario(pool, etalons, idx, lastSeq, prev)
+		acting := actingServices(ls, codes, profile)
+		pick, ok := pickScenario(pool, etalons, acting, idx, lastSeq, prev)
 		if !ok {
+			if ls.IsDDS() {
+				continue // профильных карточек для службы участника нет — ему выдавать нечего
+			}
 			return nil, fmt.Errorf("lessons: plan: в пуле занятия %s нет сценария с эталоном", lessonID)
 		}
 		plans = append(plans, issuePlan{
 			UserID: userID, AttemptID: ids.New(), ScenarioID: pool[pick], EtalonID: etalons[pick], SeqNo: lastSeq + 1,
+			ServiceCode: actingAt(acting, pick),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -274,13 +334,15 @@ func insertPlans(ctx context.Context, tx pgx.Tx, lessonID uuid.UUID, mode string
 	attemptIDs, userIDs := make([]uuid.UUID, n), make([]uuid.UUID, n)
 	scenarioIDs, etalonIDs := make([]uuid.UUID, n), make([]uuid.UUID, n)
 	seqs := make([]int32, n)
+	codes := make([]string, n)
 	for i := range plans {
 		attemptIDs[i], userIDs[i] = plans[i].AttemptID, plans[i].UserID
 		scenarioIDs[i], etalonIDs[i], seqs[i] = plans[i].ScenarioID, plans[i].EtalonID, int32(plans[i].SeqNo)
+		codes[i] = plans[i].ServiceCode
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	rows, err := tx.Query(ctx, sqlInsertAttemptsBulk, lessonID, mode, timeLimit, now,
-		attemptIDs, userIDs, scenarioIDs, etalonIDs, seqs, emptyDraftJSON)
+		attemptIDs, userIDs, scenarioIDs, etalonIDs, seqs, emptyDraftJSON, codes)
 	if err != nil {
 		return nil, fmt.Errorf("lessons: issue bulk: %w", err)
 	}

@@ -31,6 +31,7 @@ type evalRow struct {
 	LessonStatus  string
 	Settings      model.LessonSettings
 	CategoryName  string
+	DDS           bool // ракурс dds: у попытки есть служба обучающегося (attempts.service_id)
 
 	// оценка (Exists=false — оценки ещё нет; остальные поля пусты)
 	Exists        bool
@@ -108,7 +109,7 @@ func loadRow(ctx context.Context, q pg.Querier, sql string, attemptID uuid.UUID)
 	)
 	err := q.QueryRow(ctx, sql, attemptID).Scan(
 		&r.AttemptID, &r.LessonID, &r.UserID, &r.AttemptStatus, &r.TeacherID, &r.CreatedBy, &r.LessonStatus,
-		&settingsInto{dst: &r.Settings}, &r.CategoryName,
+		&settingsInto{dst: &r.Settings}, &r.CategoryName, &r.DDS,
 		&id, &etalonID, &status, &r.FieldsScore, &r.GrammarScore, &r.SemanticScore, &r.TimingScore,
 		&r.DialogueScore, &total, &verdict,
 		&rawCopy{dst: &r.FieldErrors}, &rawCopy{dst: &r.GrammarRemarks}, &rawCopy{dst: &r.GrammarStats},

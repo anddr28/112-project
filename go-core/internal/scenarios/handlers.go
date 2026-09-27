@@ -18,6 +18,7 @@ import (
 	"lct/gocore/internal/platform/httpx"
 	"lct/gocore/internal/platform/ids"
 	"lct/gocore/internal/platform/pg"
+	"lct/gocore/internal/reaction"
 	"lct/gocore/internal/store"
 )
 
@@ -372,7 +373,40 @@ func validatePatch(in *public.ScenarioPatch) map[string]string {
 	if in.ExpectedDialogue != nil && len(in.ExpectedDialogue.Checklist) > maxListItems {
 		fields["expectedDialogue.checklist"] = "Слишком много пунктов чек-листа"
 	}
+	if in.Scoring != nil {
+		checkReaction(in.Scoring.Reaction, fields)
+	}
 	return fields
+}
+
+// checkReaction — эталон работы диспетчера ДДС (Scoring.reaction, v1.3): решение из enum,
+// норматив решения в границах, обязательные статусы — те, что диспетчер проставляет сам
+// («Добавлена»/«Получена службой» ставит система, решение задаётся полем decision).
+func checkReaction(r *public.ReactionExpectation, fields map[string]string) {
+	if r == nil {
+		return
+	}
+	if r.Decision != nil && !r.Decision.Valid() {
+		fields["scoring.reaction.decision"] = "Решение — accept или reject"
+	}
+	if v := r.DecisionWithinSec; v != nil && (*v < model.MinDecisionWithinSec || *v > model.MaxDecisionWithinSec) {
+		fields["scoring.reaction.decisionWithinSec"] = "Норматив решения — от 5 до 600 секунд"
+	}
+	if r.RequiredStatuses == nil {
+		return
+	}
+	if len(*r.RequiredStatuses) > maxListItems {
+		fields["scoring.reaction.requiredStatuses"] = "Слишком много статусов"
+		return
+	}
+	for _, st := range *r.RequiredStatuses {
+		switch {
+		case !st.Valid():
+			fields["scoring.reaction.requiredStatuses"] = "Неизвестный статус реагирования: " + string(st)
+		case reaction.System(st) || st == reaction.StatusAccepted || st == reaction.StatusNotAccepted:
+			fields["scoring.reaction.requiredStatuses"] = "«" + string(st) + "» — не статус после решения: решение задаётся полем decision, «Добавлена»/«Получена службой» ставит система"
+		}
+	}
 }
 
 // mergeCallScript — легенда из правки поверх текущей:

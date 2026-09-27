@@ -20,7 +20,7 @@ import (
 // ---------------------------------------------------------------- POST /lessons/{lessonId}/start
 
 // Занятие под FOR UPDATE вместе со всем, что нужно для выдачи: пул и эталоны.
-const sqlLockForStart = `
+var sqlLockForStart = `
 SELECT l.status, l.teacher_id, l.created_by, l.mode, l.time_limit_sec, l.settings,` + poolColumns + `
   FROM lessons l
  WHERE l.id = $1
@@ -51,9 +51,10 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) error {
 			timeLimit     int
 			rawSettings   []byte
 			pool, etalons []uuid.UUID
+			codes         []string
 		)
 		err := tx.QueryRow(ctx, sqlLockForStart, lessonID).Scan(&status, &teacherID, &createdBy, &mode,
-			&timeLimit, &rawSettings, &pool, &etalons)
+			&timeLimit, &rawSettings, &pool, &etalons, &codes)
 		if err != nil {
 			if pg.IsNoRows(err) {
 				return errLessonNotFound()
@@ -88,7 +89,7 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) error {
 		rows, err := br.Query()
 		var plans []issuePlan
 		if err == nil {
-			plans, err = planFromRows(rows, lessonID, ls.CardsPerStudent, pool, etalons)
+			plans, err = planFromRows(rows, lessonID, &ls, pool, etalons, codes)
 		}
 		if cerr := br.Close(); err == nil && cerr != nil {
 			err = cerr

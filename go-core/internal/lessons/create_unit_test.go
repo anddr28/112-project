@@ -261,7 +261,6 @@ func TestParseCreate_Voice(t *testing.T) {
 	t.Parallel()
 	b := validBody()
 	b.Voice = &voiceBody{Enabled: ptr(true), Input: ptr(model.VoiceInputBoth), PushToTalk: ptr(false), MaxTurns: ptr(6), TtsEnabled: ptr(false)}
-	b.Perspective = ptr(model.PerspectiveDDS)
 	b.CardsPerStudent = ptr(3)
 	d, fields := parseCreate(&b, defaultsSnap())
 	if len(fields) != 0 {
@@ -271,7 +270,7 @@ func TestParseCreate_Voice(t *testing.T) {
 	if !v.Enabled || v.Input != model.VoiceInputBoth || v.PushToTalk || v.MaxTurns != 6 || v.TTSEnabled {
 		t.Errorf("voice %+v", v)
 	}
-	if d.Settings.Perspective != model.PerspectiveDDS || d.Settings.CardsPerStudent != 3 {
+	if d.Settings.Perspective != model.PerspectiveOperator112 || d.Settings.CardsPerStudent != 3 {
 		t.Errorf("settings %+v", d.Settings)
 	}
 	// Частичный voice — поверх голоса платформы по умолчанию.
@@ -530,5 +529,33 @@ func TestErrLessonNotFound(t *testing.T) {
 	t.Parallel()
 	if e := errLessonNotFound(); e.Status != http.StatusNotFound || e.Code != httpx.CodeNotFound || e.Message == "" {
 		t.Fatalf("%+v", e)
+	}
+}
+
+// Ракурс «Диспетчер ДДС» (v1.3): только «действия с карточками», голос выключается всегда
+// (вес разговора уходит в 0, остальные слои перенормированы к 1).
+func TestParseCreate_DDS(t *testing.T) {
+	t.Parallel()
+	b := validBody()
+	b.Perspective = ptr(model.PerspectiveDDS)
+	if _, fields := parseCreate(&b, defaultsSnap()); fields["mode"] == "" {
+		t.Errorf("dds + cards должно быть ошибкой по mode: %v", fields)
+	}
+
+	b.Mode = ptr(core.ModeCardActions)
+	b.Voice = &voiceBody{Enabled: ptr(true)}
+	d, fields := parseCreate(&b, defaultsSnap())
+	if len(fields) != 0 {
+		t.Fatalf("fields: %v", fields)
+	}
+	if !d.Settings.IsDDS() || d.Settings.Voice.Enabled {
+		t.Errorf("settings %+v", d.Settings)
+	}
+	w := d.Settings.Weights
+	if w.Dialogue != 0 {
+		t.Errorf("вес разговора в ракурсе dds: %+v", w)
+	}
+	if sum := w.Fields + w.Semantic + w.Grammar + w.Timing; sum < 0.999 || sum > 1.001 {
+		t.Errorf("веса не нормированы: %+v (сумма %v)", w, sum)
 	}
 }

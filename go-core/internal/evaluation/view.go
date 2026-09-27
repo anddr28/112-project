@@ -249,6 +249,7 @@ func recInput(r *evalRow, fieldErrs []public.FieldError, gram *components.Gramma
 		FieldErrors:  fieldErrs,
 		Timing:       r.Timing,
 		CategoryName: r.CategoryName,
+		DDS:          r.DDS,
 	}
 	if gram != nil {
 		in.GrammarRemarks = len(gram.Remarks)
