@@ -603,7 +603,7 @@ export interface paths {
         put?: never;
         /**
          * [student] Принять вызов: callAcceptedAt=now, старт таймера, открывается карточка
-         * @description Идемпотентно: повторный вызов возвращает ту же попытку. В ответе — попытка и вступительная реплика заявителя с аудио (голосовой режим), чтобы фронт начал воспроизведение сразу по жесту пользователя (autoplay policy).
+         * @description Идемпотентно: повторный вызов возвращает ту же попытку. В ответе — попытка и вступительная реплика заявителя с аудио (голосовой режим), чтобы фронт начал воспроизведение сразу по жесту пользователя (autoplay policy). Ракурс dds (v1.3): «взять в работу поступившую карточку» — звонка нет (opening не приходит), callAcceptedAt = старт норматива решения «Принята»/«Не принята»; черновик становится карточкой оператора 112 (поля эталона сценария, АОН, службы списка оповещения в статусе «Получена службой»; actionsTaken пуст).
          */
         post: operations["acceptCall"];
         delete?: never;
@@ -619,7 +619,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** [student] Урезанная легенда: без keyFacts, эталона и брифа (GAP-11); до accept-call turns = [] (легенду не читают до снятия трубки) */
+        /** [student] Урезанная легенда: без keyFacts, эталона и брифа (GAP-11); до accept-call turns = [] (легенду не читают до снятия трубки); в ракурсе dds turns = [] всегда (диспетчер ДДС с заявителем не говорит) */
         get: operations["studentCallScript"];
         put?: never;
         post?: never;
@@ -638,7 +638,7 @@ export interface paths {
         };
         /** [student] Черновик карточки (attempt_drafts); пустая карточка, если нет */
         get: operations["getDraft"];
-        /** [student] Автосохранение — черновик целиком (upsert) */
+        /** [student] Автосохранение — черновик целиком (upsert); в ракурсе dds из тела берётся только actionsTaken (карточку 112 диспетчер ДДС не правит) */
         put: operations["putDraft"];
         post?: never;
         delete?: never;
@@ -708,7 +708,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** [student] Сменить статус реагирования (переходы валидирует сервер — B-07) */
+        /** [student] Сменить статус реагирования (переходы валидирует сервер — B-07); в ракурсе dds — только у своей службы (Attempt.actingService), чужая — 403 */
         post: operations["changeServiceStatus"];
         delete?: never;
         options?: never;
@@ -744,7 +744,7 @@ export interface paths {
         put?: never;
         /**
          * [student] Сохранить карточку: submitted -> мгновенно поля+тайминг (partial) -> AI-слои
-         * @description Идемпотентно (повтор — 200 с той же попыткой). Если диалог ещё не завершён, go-core завершает его (callEndedAt=submittedAt) и ставит evaluate_dialogue.
+         * @description Идемпотентно (повтор — 200 с той же попыткой). Если диалог ещё не завершён, go-core завершает его (callEndedAt=submittedAt) и ставит evaluate_dialogue. Ракурс dds (v1.3): карточка берётся из черновика на сервере (поля 112 и статусы служб), из тела — только actionText (или card.actionsTaken). Слой fields оценивает протокол реагирования своей службы (Scoring.reaction): решение, норматив решения, обязательные статусы.
          */
         post: operations["submitAttempt"];
         delete?: never;
@@ -1054,7 +1054,7 @@ export interface components {
         /** @enum {integer} */
         Difficulty: 1 | 2 | 3;
         /**
-         * @description GAP-07: хранится в lessons.settings.perspective
+         * @description GAP-07: хранится в lessons.settings.perspective. operator112 — приём вызова и заполнение карточки; dds (v1.3) — диспетчер ДДС получает карточку от 112: только режим card_actions, без голоса, лента — профильные карточки (служба профиля обучающегося есть в списке оповещения сценария).
          * @enum {string}
          */
         ArmPerspective: "operator112" | "dds";
@@ -1349,6 +1349,23 @@ export interface components {
             };
             requiredFacts?: string[];
             forbiddenFacts?: string[];
+            reaction?: components["schemas"]["ReactionExpectation"];
+        };
+        /** @description v1.3: эталон работы диспетчера ДДС с поступившей карточкой (ракурс dds, слой fields). Нет объекта — ожидается «Принята» в течение 30 с без обязательных статусов. */
+        ReactionExpectation: {
+            /**
+             * @description accept — «Принята»; reject — «Не принята» (не зона ответственности, реагирование по другой карточке)
+             * @default accept
+             * @enum {string}
+             */
+            decision: "accept" | "reject";
+            /**
+             * @description Памятка ДДС: «Принята»/«Не принята» — в течение 30 с после поступления карточки
+             * @default 30
+             */
+            decisionWithinSec: number;
+            /** @description статусы, которые диспетчер обязан проставить после решения (например, «Начало реагирования») */
+            requiredStatuses?: components["schemas"]["ReactionStatus"][];
         };
         ExpectedAction: {
             actionText: string;
@@ -1556,6 +1573,7 @@ export interface components {
             };
             voice?: components["schemas"]["VoiceSettings"];
         };
+        /** @description Попытка (карточка обучающегося). actingService (v1.3) — только в ракурсе dds: служба, за диспетчера которой работает обучающийся (профиль ДДС или основная служба карточки, если профиля нет). */
         Attempt: {
             /** Format: uuid */
             id: string;
@@ -1586,6 +1604,7 @@ export interface components {
             /** Format: date-time */
             serverNow: string;
             voice: components["schemas"]["VoiceSettings"];
+            actingService?: components["schemas"]["ServiceRef"];
             /** @description краткое состояние разговора (полный транскрипт — GET /dialogue) */
             dialogue?: {
                 turnsCount?: number;
@@ -2952,7 +2971,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description В занятии с голосом есть сценарий без dialogue-брифа/чек-листа */
+            /** @description В занятии с голосом есть сценарий без dialogue-брифа/чек-листа; ракурс dds (v1.3): у сценария нет ни одной службы в списке оповещения или у участника с профилем ДДС нет ни одного профильного сценария в пуле (details: scenarioIds / participantIds) */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3381,7 +3400,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description Служба уже назначена / вызов не принят / попытка закрыта */
+            /** @description Служба уже назначена / вызов не принят / попытка закрыта / ракурс dds (состав служб задал оператор 112) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3414,7 +3433,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Служба в терминальном статусе */
+            /** @description Служба в терминальном статусе / ракурс dds (состав служб задал оператор 112) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3488,6 +3507,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Вызов не принят / попытка закрыта / переспрашивать запрещено / ракурс dds (звонка нет) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     submitAttempt: {

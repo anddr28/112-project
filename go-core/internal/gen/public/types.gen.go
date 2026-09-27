@@ -810,6 +810,24 @@ func (e ParticipantStatus) Valid() bool {
 	}
 }
 
+// Defines values for ReactionExpectationDecision.
+const (
+	Accept ReactionExpectationDecision = "accept"
+	Reject ReactionExpectationDecision = "reject"
+)
+
+// Valid indicates whether the value is a known member of the ReactionExpectationDecision enum.
+func (e ReactionExpectationDecision) Valid() bool {
+	switch e {
+	case Accept:
+		return true
+	case Reject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReactionStatus.
 const (
 	Добавлена              ReactionStatus = "Добавлена"
@@ -1320,7 +1338,7 @@ type ApiError struct {
 // ApplicantStatus Инструкция п.5.3 — закрытый список
 type ApplicantStatus string
 
-// ArmPerspective GAP-07: хранится в lessons.settings.perspective
+// ArmPerspective GAP-07: хранится в lessons.settings.perspective. operator112 — приём вызова и заполнение карточки; dds (v1.3) — диспетчер ДДС получает карточку от 112: только режим card_actions, без голоса, лента — профильные карточки (служба профиля обучающегося есть в списке оповещения сценария).
 type ArmPerspective string
 
 // AssignedService defines model for AssignedService.
@@ -1342,9 +1360,10 @@ type AssignedService struct {
 // AssignedServiceSource defines model for AssignedService.Source.
 type AssignedServiceSource string
 
-// Attempt defines model for Attempt.
+// Attempt Попытка (карточка обучающегося). actingService (v1.3) — только в ракурсе dds: служба, за диспетчера которой работает обучающийся (профиль ДДС или основная служба карточки, если профиля нет).
 type Attempt struct {
-	CallAcceptedAt *time.Time `json:"callAcceptedAt,omitempty"`
+	ActingService  *ServiceRef `json:"actingService,omitempty"`
+	CallAcceptedAt *time.Time  `json:"callAcceptedAt,omitempty"`
 
 	// Card Карточка АРМ-112 как её видит оператор (attempts.card / attempt_drafts.data). Расширение контрактного IncidentCard (GAP-01..06). Для ai-service go-core строит проекцию IncidentCard (snake_case) — фронт этого не видит.
 	Card *IncidentCardDraft `json:"card,omitempty"`
@@ -1363,7 +1382,7 @@ type Attempt struct {
 	LessonTitle  string             `json:"lessonTitle"`
 	Mode         LessonMode         `json:"mode"`
 
-	// Perspective GAP-07: хранится в lessons.settings.perspective
+	// Perspective GAP-07: хранится в lessons.settings.perspective. operator112 — приём вызова и заполнение карточки; dds (v1.3) — диспетчер ДДС получает карточку от 112: только режим card_actions, без голоса, лента — профильные карточки (служба профиля обучающегося есть в списке оповещения сценария).
 	Perspective  ArmPerspective     `json:"perspective"`
 	ReplayCount  int                `json:"replayCount"`
 	ScenarioId   openapi_types.UUID `json:"scenarioId"`
@@ -1534,7 +1553,7 @@ type CreateLessonInput struct {
 	ParticipantIds []openapi_types.UUID `json:"participantIds"`
 	PassThreshold  float32              `json:"passThreshold"`
 
-	// Perspective GAP-07: хранится в lessons.settings.perspective
+	// Perspective GAP-07: хранится в lessons.settings.perspective. operator112 — приём вызова и заполнение карточки; dds (v1.3) — диспетчер ДДС получает карточку от 112: только режим card_actions, без голоса, лента — профильные карточки (служба профиля обучающегося есть в списке оповещения сценария).
 	Perspective  ArmPerspective       `json:"perspective"`
 	ScenarioIds  []openapi_types.UUID `json:"scenarioIds"`
 	TimeLimitSec int                  `json:"timeLimitSec"`
@@ -1920,7 +1939,7 @@ type Lesson struct {
 	Mode         LessonMode          `json:"mode"`
 	Participants []LessonParticipant `json:"participants"`
 
-	// Perspective GAP-07: хранится в lessons.settings.perspective
+	// Perspective GAP-07: хранится в lessons.settings.perspective. operator112 — приём вызова и заполнение карточки; dds (v1.3) — диспетчер ДДС получает карточку от 112: только режим card_actions, без голоса, лента — профильные карточки (служба профиля обучающегося есть в списке оповещения сценария).
 	Perspective  ArmPerspective       `json:"perspective"`
 	ScenarioIds  []openapi_types.UUID `json:"scenarioIds"`
 	Settings     LessonSettings       `json:"settings"`
@@ -2009,6 +2028,21 @@ type MonitorMessageType string
 
 // ParticipantStatus defines model for ParticipantStatus.
 type ParticipantStatus string
+
+// ReactionExpectation v1.3: эталон работы диспетчера ДДС с поступившей карточкой (ракурс dds, слой fields). Нет объекта — ожидается «Принята» в течение 30 с без обязательных статусов.
+type ReactionExpectation struct {
+	// Decision accept — «Принята»; reject — «Не принята» (не зона ответственности, реагирование по другой карточке)
+	Decision *ReactionExpectationDecision `json:"decision,omitempty"`
+
+	// DecisionWithinSec Памятка ДДС: «Принята»/«Не принята» — в течение 30 с после поступления карточки
+	DecisionWithinSec *int `json:"decisionWithinSec,omitempty"`
+
+	// RequiredStatuses статусы, которые диспетчер обязан проставить после решения (например, «Начало реагирования»)
+	RequiredStatuses *[]ReactionStatus `json:"requiredStatuses,omitempty"`
+}
+
+// ReactionExpectationDecision accept — «Принята»; reject — «Не принята» (не зона ответственности, реагирование по другой карточке)
+type ReactionExpectationDecision string
 
 // ReactionStatus defines model for ReactionStatus.
 type ReactionStatus string
@@ -2141,8 +2175,11 @@ type Score = float32
 type Scoring struct {
 	FieldWeights   *map[string]float32 `json:"fieldWeights,omitempty"`
 	ForbiddenFacts *[]string           `json:"forbiddenFacts,omitempty"`
-	RequiredFacts  *[]string           `json:"requiredFacts,omitempty"`
-	RequiredFields *[]string           `json:"requiredFields,omitempty"`
+
+	// Reaction v1.3: эталон работы диспетчера ДДС с поступившей карточкой (ракурс dds, слой fields). Нет объекта — ожидается «Принята» в течение 30 с без обязательных статусов.
+	Reaction       *ReactionExpectation `json:"reaction,omitempty"`
+	RequiredFacts  *[]string            `json:"requiredFacts,omitempty"`
+	RequiredFields *[]string            `json:"requiredFields,omitempty"`
 }
 
 // SemanticResult defines model for SemanticResult.
