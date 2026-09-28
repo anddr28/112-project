@@ -20,10 +20,6 @@ import type { AssignedService, ReactionStatus, ServiceRef } from '../../shared/t
  * Список допустимых переходов берётся ТОЛЬКО из `service.allowedNext`
  * (в mock-режиме его считает shared/mocks/reactionTransitions.ts).
  *
- * Ракурс «Диспетчер ДДС» (v1.3) — задан `ownServiceId`: состав служб задал
- * оператор 112, поэтому добавления и снятия нет; статус проставляется только
- * своей службе, у чужих — только просмотр истории (сервер ответит 403).
- *
  * `children` — строка действий по карточке («Черновик», «сохранить», иконки).
  * Она приходит из IncidentCard и встаёт второй строкой той же оранжевой
  * панели: раньше это был отдельный блок со своим фоном и высотой, из-за чего
@@ -34,18 +30,14 @@ export function ServicesBar({
   services,
   disabled,
   onChanged,
-  ownServiceId,
   children,
 }: {
   attemptId: string;
   services: AssignedService[];
   disabled: boolean;
   onChanged: () => void;
-  /** ракурс dds: служба обучающегося; без него — поведение оператора 112 */
-  ownServiceId?: string;
   children?: ReactNode;
 }) {
-  const dds = ownServiceId !== undefined;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,20 +59,14 @@ export function ServicesBar({
       {active && (
         <>
           <ServiceHistory service={active} onClose={() => setActiveId(null)} />
-          {dds && active.serviceId !== ownServiceId ? (
-            <div className="arm-note" style={{ margin: '0 8px 6px' }}>
-              Статус этой службы проставляет её диспетчер — вы работаете за свою службу.
-            </div>
-          ) : (
-            <ReactionStatusForm
-              key={active.serviceId}
-              attemptId={attemptId}
-              service={active}
-              disabled={disabled}
-              onError={setError}
-              onDone={onChanged}
-            />
-          )}
+          <ReactionStatusForm
+            key={active.serviceId}
+            attemptId={attemptId}
+            service={active}
+            disabled={disabled}
+            onError={setError}
+            onDone={onChanged}
+          />
         </>
       )}
 
@@ -101,11 +87,7 @@ export function ServicesBar({
                 <button
                   key={s.serviceId}
                   type="button"
-                  className={cls(
-                    'arm-service',
-                    activeId === s.serviceId && 'is-active',
-                    dds && s.serviceId === ownServiceId && 'arm-service--own',
-                  )}
+                  className={cls('arm-service', activeId === s.serviceId && 'is-active')}
                   onClick={() => setActiveId(activeId === s.serviceId ? null : s.serviceId)}
                   title={s.reason ? `${s.name}\nОснование: ${s.reason}` : s.name}
                 >
@@ -114,8 +96,7 @@ export function ServicesBar({
                       {s.shortName}
                     </span>
                     {s.source === 'vis' && <span className="arm-service__vis">ВИС</span>}
-                    {dds && s.serviceId === ownServiceId && <span className="arm-service__vis">ВАША</span>}
-                    {!disabled && !dds && (
+                    {!disabled && (
                       <span
                         role="button"
                         tabIndex={-1}
@@ -152,18 +133,16 @@ export function ServicesBar({
               );
             })}
 
-            {!dds && (
-              <button
-                type="button"
-                className="arm-addsvc"
-                disabled={disabled}
-                onClick={() => setAddOpen(true)}
-                title="Добавить службу вручную"
-                aria-label="Добавить службу"
-              >
-                +
-              </button>
-            )}
+            <button
+              type="button"
+              className="arm-addsvc"
+              disabled={disabled}
+              onClick={() => setAddOpen(true)}
+              title="Добавить службу вручную"
+              aria-label="Добавить службу"
+            >
+              +
+            </button>
           </div>
 
           <div className="arm-bottom__actions" />
@@ -184,18 +163,26 @@ export function ServicesBar({
   );
 }
 
-function ReactionStatusForm({
+/**
+ * Форма статуса реагирования: переходы — только `allowedNext`, обязательный
+ * комментарий блокирует ✓. Используется и в панели оператора 112, и в панели
+ * диспетчера ДДС (там её открывает карандаш своей службы).
+ */
+export function ReactionStatusForm({
   attemptId,
   service,
   disabled,
   onError,
   onDone,
+  onCancel,
 }: {
   attemptId: string;
   service: AssignedService;
   disabled: boolean;
   onError: (msg: string | null) => void;
   onDone: () => void;
+  /** ✕ формы: без него — только очистка полей (панель оператора 112) */
+  onCancel?: () => void;
 }) {
   const [status, setStatus] = useState<ReactionStatus | ''>('');
   const [squad, setSquad] = useState('');
@@ -280,6 +267,7 @@ function ReactionStatusForm({
             setStatus('');
             setSquad('');
             setComment('');
+            onCancel?.();
           }}
           title="Отмена"
         >
@@ -290,7 +278,8 @@ function ReactionStatusForm({
   );
 }
 
-function ServiceHistory({ service, onClose }: { service: AssignedService; onClose: () => void }) {
+/** История статусов службы (синяя панель): «оп. › дата время статус › комментарий». */
+export function ServiceHistory({ service, onClose }: { service: AssignedService; onClose: () => void }) {
   return (
     <div className="arm-history">
       <div className="arm-history__head">

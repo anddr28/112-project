@@ -100,6 +100,17 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     }
   }
 
+  /**
+   * «✕» — закрыть карточку без сдачи: отложенные события и черновик уходят на сервер,
+   * попытка остаётся «в работе» (отсчёт идёт от callAcceptedAt на сервере). Диспетчер
+   * ДДС возвращается к списку происшествий, оператор 112 — к своим занятиям.
+   */
+  async function close() {
+    await flush();
+    await saveNow();
+    navigate(dds ? `/student/attempts/${attemptId}/call` : '/student');
+  }
+
   async function submit() {
     if (!attempt) return;
 
@@ -161,7 +172,6 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     return (
       <DdsWorkspace
         attempt={state.attempt}
-        user={user}
         card={card}
         elapsedMs={elapsedMs}
         saveState={saveState}
@@ -171,6 +181,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
         onFieldChange={logFieldChange}
         onServicesChanged={reloadDraft}
         onSubmit={() => void submitDds()}
+        onClose={() => void close()}
       />
     );
   }
@@ -195,6 +206,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
         log('replay');
       }}
       onSubmit={() => void submit()}
+      onClose={() => void close()}
     />
   );
 }
