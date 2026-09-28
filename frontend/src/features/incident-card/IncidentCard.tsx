@@ -43,6 +43,7 @@ export function IncidentCard({
   onReplay,
   onEvent,
   onSubmit,
+  onClose,
 }: {
   attempt: Attempt;
   user: User;
@@ -60,6 +61,8 @@ export function IncidentCard({
   /** журнал попытки: панель разговора пишет в него удержание кнопки ответа */
   onEvent: (type: AttemptEventType, payload?: Record<string, unknown>) => void;
   onSubmit: () => void;
+  /** «✕» — закрыть карточку без сохранения: черновик на сервере, попытка остаётся в работе */
+  onClose: () => void;
 }) {
   const [reference, setReference] = useState<{ title: string; text: string } | null>(null);
   const [fiasNotice, setFiasNotice] = useState(false);
@@ -459,12 +462,23 @@ export function IncidentCard({
               <button type="button" className="arm-save" disabled={readOnly} onClick={onSubmit}>
                 {submitting ? 'Сохранение…' : 'сохранить'}
               </button>
-              {/* Резерв под функции реального АРМ: кнопки видны, но недоступны — см. title. */}
-              <button type="button" className="arm-iconbtn" disabled title="Связи между карточками: в этой версии недоступно" aria-label="Связи между карточками"><Icon name="link" /></button>
-              <button type="button" className="arm-iconbtn" disabled title="Напоминание: в этой версии недоступно" aria-label="Напоминание"><Icon name="alarm" /></button>
-              <button type="button" className="arm-iconbtn" disabled title="Важное происшествие: в этой версии недоступно" aria-label="Важное происшествие"><Icon name="flag" /></button>
-              <button type="button" className="arm-iconbtn" disabled title="Уведомления: в этой версии недоступно" aria-label="Уведомления"><Icon name="bell" /></button>
-              <button type="button" className="arm-iconbtn" disabled title="Сообщить о проблеме: в этой версии недоступно" aria-label="Сообщить о проблеме"><Icon name="message" /></button>
+              {/* Функции реального АРМ без поддержки сервера (в API таких операций нет):
+                  кнопки видны, как в макете, но недоступны — причина в title. */}
+              <button type="button" className="arm-iconbtn" disabled title="Связи между карточками: в учебной версии нет — сервер не поддерживает" aria-label="Связи между карточками"><Icon name="link" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Напоминание: в учебной версии нет — сервер не поддерживает" aria-label="Напоминание"><Icon name="alarm" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Важное происшествие: в учебной версии нет — сервер не поддерживает" aria-label="Важное происшествие"><Icon name="flag" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Уведомления: в учебной версии нет — сервер не поддерживает" aria-label="Уведомления"><Icon name="bell" /></button>
+              <button type="button" className="arm-iconbtn" disabled title="Сообщить о проблеме: в учебной версии нет — сервер не поддерживает" aria-label="Сообщить о проблеме"><Icon name="message" /></button>
+              <button
+                type="button"
+                className="arm-iconbtn"
+                disabled={submitting}
+                title="Закрыть карточку — черновик сохранён, работа с вызовом не завершается"
+                aria-label="Закрыть карточку"
+                onClick={onClose}
+              >
+                ✕
+              </button>
             </div>
           </div>
         </ServicesBar>

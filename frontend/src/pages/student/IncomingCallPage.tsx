@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { Icon } from '../../components/Icon';
+import { DdsIncidentList } from '../../features/dds/DdsIncidentList';
 import type { Attempt, StudentCallScript } from '../../shared/types';
 
 /**
@@ -15,9 +16,8 @@ import type { Attempt, StudentCallScript } from '../../shared/types';
  * эталонную карточку, keyFacts и требуемые поля, то есть правильные ответы.
  * Обучающемуся они не передаются даже в сетевом ответе.
  *
- * Ракурс «Диспетчер ДДС» (v1.3): звонка нет — поступает карточка от
- * оператора 112. «Взять в работу» (тот же accept-call) запускает отсчёт
- * 30 с на решение «Принята» / «Не принята».
+ * Ракурс «Диспетчер ДДС» (v1.3): звонка нет — вместо окна вызова показывается
+ * «Список происшествий» (features/dds/DdsIncidentList): карточку создал оператор 112.
  */
 export function IncomingCallPage() {
   const { attemptId = '' } = useParams();
@@ -34,12 +34,14 @@ export function IncomingCallPage() {
       .then(async (a) => {
         if (cancelled) return;
         setAttempt(a);
+        // ДДС: список происшествий показывается и после взятия в работу (к нему
+        // возвращает «✕» карточки); реплик заявителя у диспетчера нет.
+        if (a.perspective === 'dds') return;
         if (a.callAcceptedAt) {
           navigate(`/student/attempts/${attemptId}/arm`, { replace: true });
           return;
         }
-        // У ДДС реплик заявителя нет — call-script не нужен.
-        const s = a.perspective === 'dds' ? null : await api.callScript.get(attemptId);
+        const s = await api.callScript.get(attemptId);
         if (!cancelled) setScript(s);
       })
       .catch((e: unknown) => {
@@ -54,7 +56,7 @@ export function IncomingCallPage() {
       await api.attempts.acceptCall(attemptId);
       navigate(`/student/attempts/${attemptId}/arm`, { replace: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось принять в работу');
+      setError(e instanceof Error ? e.message : 'Не удалось принять вызов');
       setBusy(false);
     }
   }
@@ -71,34 +73,8 @@ export function IncomingCallPage() {
     );
   }
 
-  if (attempt?.perspective === 'dds') {
-    return (
-      <div className="call-screen">
-        <div className="call-card">
-          <div className="call-card__pulse"><Icon name="bell" size={22} /></div>
-          <div className="call-card__title">Поступила карточка от оператора 112</div>
-          <div className="call-card__phone mono">№ {attempt.incidentNo}</div>
-          <div className="call-card__meta">
-            Служба: {attempt.actingService?.name ?? 'не определена'}
-          </div>
-
-          <div className="call-card__meta" style={{ marginTop: 14, lineHeight: 1.5 }}>
-            Решение «Принята» / «Не принята» — в течение <b>30 с</b>.<br />
-            Норматив работы с карточкой — <b>{attempt.timeLimitSec} с</b>.<br />
-            Отсчёт начнётся, когда вы возьмёте карточку в работу.
-          </div>
-
-          <button type="button" className="call-card__accept" disabled={busy} onClick={() => void accept()}>
-            {busy ? 'Открытие…' : 'Взять в работу'}
-          </button>
-
-          <button type="button" className="arm-mini" style={{ marginTop: 10 }} onClick={() => navigate('/student')}>
-            Вернуться к занятиям
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Диспетчер ДДС звонков не принимает: его экран — «Список происшествий».
+  if (attempt?.perspective === 'dds') return <DdsIncidentList attempt={attempt} />;
 
   if (!attempt || !script) {
     return (
