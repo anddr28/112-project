@@ -138,6 +138,13 @@ func (s *Service) handleOverride(w http.ResponseWriter, r *http.Request) error {
 		if err := access.ManageAttempt(p, row.accessRow()); err != nil {
 			return err
 		}
+		// ТЗ: «администратор не может менять оценки … во время активного занятия». Пока
+		// занятие идёт, оценку ведёт его преподаватель; администратор — после завершения.
+		if p.Role == core.RoleAdmin && row.LessonStatus == core.LessonRunning {
+			return httpx.Conflict("Во время идущего занятия администратор не может менять оценки — " +
+				"корректировку делает преподаватель занятия или администратор после его завершения").
+				WithDetails(map[string]any{"lessonStatus": row.LessonStatus})
+		}
 		before := overrideSnapshot(row)
 
 		score := scoring.Round2(*body.Score)

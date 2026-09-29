@@ -79,6 +79,10 @@ func (s *Service) Register(r *httpx.Router) {
 	r.Handle("POST /scenarios/{scenarioId}/reject", staff, s.handleReject)
 	r.Handle("POST /scenarios/{scenarioId}/versions", staff, s.handleCreateVersion)
 	r.Handle("POST /scenarios/{scenarioId}/tts-preview", staff, s.handleTTSPreview)
+	// v1.4: пакетный обмен сценариями и сценарий из карточки обучающегося.
+	r.Handle("GET /scenarios/export", staff, s.handleExport)
+	r.Handle("POST /scenarios/import", staff, s.handleImport)
+	r.Handle("POST /attempts/{attemptId}/to-scenario", httpx.Roles(core.RoleTeacher), s.handleFromAttempt)
 }
 
 // RegisterResults — обработчики результатов ai-service: генерация сценария и озвучка.

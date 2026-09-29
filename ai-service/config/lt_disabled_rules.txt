@@ -1,0 +1,10 @@
+# Шумные правила LanguageTool для карточек 112 (отключаются всегда, в дополнение к
+# options.exclude_rules из запроса). Карточка — телеграфный стиль диспетчера:
+# сокращения, цифры, отсутствие точки в конце — не ошибка.
+UPPERCASE_SENTENCE_START
+WHITESPACE_RULE
+COMMA_PARENTHESIS_WHITESPACE
+DOUBLE_PUNCTUATION
+PUNCTUATION_PARAGRAPH_END
+RU_UNPAIRED_BRACKETS
+Cap_Letters_Name

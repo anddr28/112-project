@@ -1,0 +1,36 @@
+{
+  "schema_version": "1",
+  "request_id": "018f6b2a-7c1e-7f00-a000-000000000041",
+  "priority": 7,
+  "profile": "generate",
+  "spec": {
+    "category": {
+      "code": "fire_residential",
+      "name": "Пожар в жилом доме",
+      "path": [
+        "Пожары",
+        "Пожар в здании"
+      ],
+      "attributes": [
+        "people_threat",
+        "gasified",
+        "floors"
+      ],
+      "services": [
+        "101",
+        "103",
+        "104",
+        "zhkh"
+      ]
+    },
+    "difficulty": 2,
+    "mode": "both",
+    "teacher_comment": "Заявитель — пожилая соседка",
+    "avoid_titles": [
+      "Пожар в квартире многоквартирного дома"
+    ]
+  },
+  "options": {
+    "lang": "ru"
+  }
+}

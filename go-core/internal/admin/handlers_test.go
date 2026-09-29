@@ -29,6 +29,7 @@ var adminRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/admin/audit"},
 	{http.MethodGet, "/admin/backups"},
 	{http.MethodPost, "/admin/backups"},
+	{http.MethodGet, "/admin/logs"},
 }
 
 func TestRoutesRegistered(t *testing.T) {
@@ -36,7 +37,7 @@ func TestRoutesRegistered(t *testing.T) {
 	_, r := newServer(t, New(Deps{Log: discardLog()}))
 	got := r.Routes()
 	slices.Sort(got)
-	want := []string{"GET /admin/audit", "GET /admin/backups", "GET /admin/health", "GET /admin/settings",
+	want := []string{"GET /admin/audit", "GET /admin/backups", "GET /admin/health", "GET /admin/logs", "GET /admin/settings",
 		"POST /admin/backups", "PUT /admin/settings/{key}"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("routes = %v, want %v", got, want)

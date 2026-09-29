@@ -390,6 +390,11 @@ export interface LessonSettings {
   cardsPerStudent: number;
   allowReplay: boolean;
   voice: VoiceSettings;
+  /**
+   * v1.4, «действия с карточками»: пул занятия — из сгенерированных системой
+   * карточек, из сформированных обучающимися или смешанный. Нет — mixed.
+   */
+  cardSource?: 'generated' | 'student' | 'mixed';
 }
 
 export interface LessonParticipant {
@@ -555,7 +560,7 @@ export interface SystemHealth {
     stt?: boolean;
     modelsAvailable?: string[];
     profiles?: Record<string, string>;
-    queue?: { running?: number; dialogWaiting?: number; dialogAvgMs?: number; estWaitSec?: number };
+    queue?: { pending?: Record<string, number>; running?: number; dialogWaiting?: number; dialogAvgMs?: number; estWaitSec?: number };
   };
   /** задачи ai_jobs по статусам */
   jobs?: Record<string, number>;

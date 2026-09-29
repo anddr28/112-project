@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../../shared/api';
-import type { Attempt, AttemptEventInput, AttemptEventType, IncidentCardDraft } from '../../shared/types';
+import { outboxFor } from './outbox';
+import type { OutboxState } from './outbox';
+import type { Attempt, AttemptEventType, IncidentCardDraft } from '../../shared/types';
 
-export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-
-/**
- * Журнал событий и досылка черновика — фоновые каналы: они не должны ни
- * прерывать работу обучающегося, ни падать необработанным отказом промиса.
- * Видимые ошибки сохранения показывает состояние `saveState`.
- */
-function ignoreBackgroundError(): void {}
+/** `offline` — нет связи: данные сохранены на устройстве и будут досланы. */
+export type SaveState = 'idle' | 'saving' | 'saved' | 'offline' | 'error';
 
 /**
  * Таймер попытки.
@@ -54,18 +49,21 @@ export function useAttemptTimer(attempt: Attempt | null): { elapsedMs: number; e
 }
 
 /**
- * Автосохранение черновика и журнал событий попытки.
+ * Автосохранение черновика.
  *
- * Черновик пишется целиком (в модели БД `attempt_drafts` — upsert по attempt_id).
- * События ставятся в очередь и уходят батчем — отдельной системы логирования
- * на фронте не заводим, канал один.
+ * Черновик пишется целиком (upsert по attempt_id) через исходящую очередь
+ * попытки: правка сразу сохраняется на устройстве, а на сервер уходит после
+ * паузы ввода. При обрыве связи состояние — `offline`: данные не потеряны и
+ * будут досланы, как только сервер ответит.
  */
+const DRAFT_DEBOUNCE_MS = 900;
+
 export function useAutosave(attemptId: string, card: IncidentCardDraft, enabled: boolean) {
-  const [saveState, setSaveState] = useState<SaveState>('idle');
-  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const box = outboxFor(attemptId);
+  const [state, setState] = useState<OutboxState | null>(null);
   const firstRun = useRef(true);
-  /** Состояние, изменённое, но ещё не подтверждённое сервером. */
-  const unsaved = useRef<IncidentCardDraft | null>(null);
+
+  useEffect(() => box.subscribe(setState), [box]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -73,137 +71,65 @@ export function useAutosave(attemptId: string, card: IncidentCardDraft, enabled:
       firstRun.current = false;
       return;
     }
-
-    unsaved.current = card;
-    setSaveState('saving');
-
-    const timer = setTimeout(() => {
-      const sending = card;
-      api.attempts
-        .updateDraft(attemptId, sending)
-        .then((res) => {
-          /*
-           * Пока запрос шёл, оператор мог изменить карточку снова. Тогда
-           * актуально новое состояние, а не подтверждённое сервером: сбрасывать
-           * «несохранённое» и показывать «сохранено» нельзя — иначе правка,
-           * сделанная во время запроса, потерялась бы при уходе с экрана.
-           */
-          if (unsaved.current !== sending) return;
-          unsaved.current = null;
-          setSaveState('saved');
-          setSavedAt(res.savedAt);
-        })
-        .catch(() => {
-          if (unsaved.current !== sending) return;
-          setSaveState('error');
-        });
-    }, 900);
-
+    box.putDraft(card);
+    const timer = setTimeout(() => void box.flush(), DRAFT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [attemptId, card, enabled]);
+  }, [box, card, enabled]);
 
-  /*
-   * Уход с экрана раньше, чем сработал debounce, не должен терять правку:
-   * отправляем последнее состояние вдогонку. Состояние компонента при этом
-   * не трогаем — его уже нет.
-   */
-  useEffect(
-    () => () => {
-      if (unsaved.current) {
-        // Компонента уже нет — показать ошибку негде, но и ронять её наружу
-        // необработанным отказом промиса нельзя.
-        void api.attempts.updateDraft(attemptId, unsaved.current).catch(ignoreBackgroundError);
-      }
-    },
-    [attemptId],
-  );
+  // Уход с экрана раньше паузы: черновик уже в очереди, досылаем его сразу.
+  useEffect(() => () => void box.flush(), [box]);
 
-  const saveNow = useCallback(async () => {
-    setSaveState('saving');
-    const sending = card;
-    unsaved.current = sending;
-    try {
-      const res = await api.attempts.updateDraft(attemptId, sending);
-      if (unsaved.current !== sending) return;
-      unsaved.current = null;
-      setSaveState('saved');
-      setSavedAt(res.savedAt);
-    } catch {
-      if (unsaved.current === sending) setSaveState('error');
-    }
-  }, [attemptId, card]);
+  /** Немедленная отправка (перед сдачей и закрытием карточки); true — сервер подтвердил. */
+  const saveNow = useCallback(() => {
+    box.putDraft(card);
+    return box.flush();
+  }, [box, card]);
 
-  return { saveState, savedAt, saveNow };
+  const saveState: SaveState = !state
+    ? 'idle'
+    : state.status === 'offline'
+      ? 'offline'
+      : state.status === 'error'
+        ? 'error'
+        : state.draftPending || state.status === 'sending'
+          ? 'saving'
+          : state.savedAt
+            ? 'saved'
+            : 'idle';
+
+  return { saveState, savedAt: state?.savedAt ?? null, saveNow };
 }
 
 /**
  * Журнал событий попытки.
  *
  * Изменения текстовых полей дебаунсятся, чтобы не слать событие на каждый
- * символ. Отложенные события обязательно отправляются перед завершением
- * попытки и при уходе с экрана — иначе последнее действие обучающегося
- * не попало бы в хронологию и в разбор у преподавателя.
+ * символ. События нумеруются сразу (clientSeq) и лежат в исходящей очереди до
+ * подтверждения сервером: повтор после обрыва безопасен, сервер отбрасывает
+ * дубли. Отложенные события отправляются перед сдачей и при уходе с экрана —
+ * иначе последнее действие не попало бы в хронологию у преподавателя.
  */
-/** Пауза, за которую события копятся в одну пачку (контракт: до 200 в пачке). */
+/** Пауза, за которую события копятся в одну пачку. */
 const EVENT_BATCH_MS = 500;
-const EVENT_BATCH_MAX = 200;
-
-/**
- * Сквозной номер события попытки. Хранится между перезагрузками вкладки:
- * по нему сервер отбрасывает повторы, и после F5 нумерация не должна
- * начинаться заново — иначе новые события приняли бы за дубли.
- */
-function nextClientSeq(attemptId: string): number {
-  const key = `arm112.eventSeq.${attemptId}`;
-  let current = 0;
-  try {
-    current = Number(sessionStorage.getItem(key)) || 0;
-  } catch {
-    // хранилище недоступно — нумерация живёт до перезагрузки
-  }
-  const next = current + 1;
-  try {
-    sessionStorage.setItem(key, String(next));
-  } catch {
-    // см. выше
-  }
-  return next;
-}
 
 export function useEventLog(attemptId: string) {
+  const box = outboxFor(attemptId);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** Последнее значение поля, ожидающее отправки, и время самого изменения. */
   const queued = useRef<Map<string, { value: unknown; at: string }>>(new Map());
-  /** События, пронумерованные и ещё не подтверждённые сервером. */
-  const outbox = useRef<AttemptEventInput[]>([]);
   const batchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /**
-   * Отправляет накопленное пачкой. При сбое события возвращаются в очередь:
-   * повтор безопасен — сервер отбрасывает уже принятые clientSeq.
-   */
-  const sendBatch = useCallback(async (): Promise<void> => {
-    if (batchTimer.current) clearTimeout(batchTimer.current);
-    batchTimer.current = null;
-    while (outbox.current.length > 0) {
-      const batch = outbox.current.splice(0, EVENT_BATCH_MAX);
-      try {
-        await api.attempts.postEvents(attemptId, batch);
-      } catch {
-        outbox.current = [...batch, ...outbox.current];
-        return;
-      }
-    }
-  }, [attemptId]);
 
   const enqueue = useCallback(
     (type: AttemptEventType, payload: Record<string, unknown> | undefined, at: string) => {
-      outbox.current.push({ clientSeq: nextClientSeq(attemptId), type, payload, at });
+      box.pushEvent({ clientSeq: box.nextSeq(), type, payload, at });
       if (!batchTimer.current) {
-        batchTimer.current = setTimeout(() => void sendBatch().catch(ignoreBackgroundError), EVENT_BATCH_MS);
+        batchTimer.current = setTimeout(() => {
+          batchTimer.current = null;
+          void box.flush();
+        }, EVENT_BATCH_MS);
       }
     },
-    [attemptId, sendBatch],
+    [box],
   );
 
   const log = useCallback(
@@ -237,39 +163,35 @@ export function useEventLog(attemptId: string) {
     [enqueue],
   );
 
-  /** Немедленно отправляет всё отложенное. Вызывается перед submit. */
-  const flush = useCallback((): Promise<void> => {
+  /** Переносит отложенные изменения полей в очередь (с их исходным временем). */
+  const drainFieldChanges = useCallback(() => {
     timers.current.forEach((t) => clearTimeout(t));
     timers.current.clear();
     const pending = [...queued.current.entries()];
     queued.current.clear();
-    for (const [field, item] of pending) enqueue('field_changed', { field, value: item.value }, item.at);
-    return sendBatch();
-  }, [enqueue, sendBatch]);
+    for (const [field, item] of pending) {
+      box.pushEvent({ clientSeq: box.nextSeq(), type: 'field_changed', payload: { field, value: item.value }, at: item.at });
+    }
+  }, [box]);
 
-  useEffect(() => {
-    const pendingTimers = timers.current;
-    const pendingValues = queued.current;
-    return () => {
-      pendingTimers.forEach((t) => clearTimeout(t));
-      pendingTimers.clear();
-      // Отправляем вдогонку то, что не успело уйти по debounce и в пачку.
-      const rest = [...pendingValues.entries()];
-      pendingValues.clear();
-      for (const [field, item] of rest) {
-        outbox.current.push({
-          clientSeq: nextClientSeq(attemptId),
-          type: 'field_changed',
-          payload: { field, value: item.value },
-          at: item.at,
-        });
-      }
+  /** Немедленно отправляет всё отложенное. Вызывается перед submit; true — сервер подтвердил. */
+  const flush = useCallback((): Promise<boolean> => {
+    drainFieldChanges();
+    if (batchTimer.current) clearTimeout(batchTimer.current);
+    batchTimer.current = null;
+    return box.flush();
+  }, [box, drainFieldChanges]);
+
+  useEffect(
+    () => () => {
+      // Уход с экрана: отложенное — в очередь и на сервер. Не дошло — дошлётся при следующем открытии.
+      drainFieldChanges();
       if (batchTimer.current) clearTimeout(batchTimer.current);
       batchTimer.current = null;
-      const batch = outbox.current.splice(0);
-      if (batch.length > 0) void api.attempts.postEvents(attemptId, batch).catch(ignoreBackgroundError);
-    };
-  }, [attemptId]);
+      void box.flush();
+    },
+    [box, drainFieldChanges],
+  );
 
   return { log, logFieldChange, flush };
 }

@@ -1,6 +1,6 @@
 # Кодогенерация из contracts/openapi — источника истины контрактов.
 # Требования: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
-#             pip install "datamodel-code-generator[http]"
+#             datamodel-code-generator (версия закреплена в ai-service/pyproject.toml: cd ai-service && uv sync)
 #             npx openapi-typescript (ставится на лету), npx @redocly/cli (линт)
 
 OPENAPI := contracts/openapi
@@ -18,14 +18,16 @@ generate-go:
 	cd go-core && oapi-codegen -config internal/gen/callbacks.cfg.yaml ../$(OPENAPI)/go-internal.v1.yaml
 	cd go-core && oapi-codegen -config internal/gen/public.cfg.yaml ../$(OPENAPI)/frontend.v1.yaml
 
+# datamodel-codegen из dev-зависимостей ai-service (версия закреплена — вывод детерминирован для
+# contracts-check); --disable-timestamp — иначе каждый прогон давал бы diff.
+DATAMODEL_CODEGEN ?= uv run --project ai-service datamodel-codegen
+DMC_FLAGS := --input-file-type openapi --output-model-type pydantic_v2.BaseModel --use-standard-collections \
+	--use-union-operator --target-python-version 3.11 --disable-timestamp --formatters black isort
+
 generate-python:
 	mkdir -p ai-service/ai_service/gen
-	datamodel-codegen --input $(OPENAPI)/ai-service.v1.yaml --input-file-type openapi \
-		--output ai-service/ai_service/gen/api_models.py --output-model-type pydantic_v2.BaseModel \
-		--use-standard-collections --use-union-operator --target-python-version 3.11
-	datamodel-codegen --input $(OPENAPI)/go-internal.v1.yaml --input-file-type openapi \
-		--output ai-service/ai_service/gen/callback_models.py --output-model-type pydantic_v2.BaseModel \
-		--use-standard-collections --use-union-operator --target-python-version 3.11
+	$(DATAMODEL_CODEGEN) --input $(OPENAPI)/ai-service.v1.yaml --output ai-service/ai_service/gen/api_models.py $(DMC_FLAGS)
+	$(DATAMODEL_CODEGEN) --input $(OPENAPI)/go-internal.v1.yaml --output ai-service/ai_service/gen/callback_models.py $(DMC_FLAGS)
 
 generate-ts:
 	mkdir -p frontend/src/shared/api/gen
@@ -85,3 +87,22 @@ e2e:
 # тесты с гонками; интеграционные — на свежих БД из шаблона (internal/platform/pgtest, нужен make db-up)
 go-test-race:
 	cd go-core && go test -race -count=1 -p 4 ./...
+
+# нагрузка и устойчивость (go-core/tools/loadtest, результаты — docs/testing/results/, отчёт —
+# docs/testing/load-and-resilience.md). Нужен запущенный контур (docker compose --profile fake up)
+# и docker CLI. Порты/проект — переменными: make loadtest LOADTEST_BASE=https://localhost:9443
+LOADTEST_BASE    ?= https://localhost:8443
+LOADTEST_OPS     ?= http://127.0.0.1:8080
+LOADTEST_PROJECT ?= lct112
+LOADTEST_ARGS    ?=
+OUTAGE_ARGS      ?=
+LOADTEST_FLAGS    = -base $(LOADTEST_BASE) -ops $(LOADTEST_OPS) -project $(LOADTEST_PROJECT) -out ../docs/testing/results
+
+.PHONY: loadtest outagetest
+# 3 группы × 30 с при 100 пользователях (-groups 1,2,3 -window 30s -students 100 -think 1)
+loadtest:
+	cd go-core && go run ./tools/loadtest load $(LOADTEST_FLAGS) $(LOADTEST_ARGS)
+
+# обрывы сети 5/15/29 с, pause/network disconnect/restart go-core, остановка PostgreSQL
+outagetest:
+	cd go-core && go run ./tools/loadtest outage $(LOADTEST_FLAGS) $(OUTAGE_ARGS)

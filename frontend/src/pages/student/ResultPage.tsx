@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
@@ -6,7 +6,12 @@ import { Badge, Card, EmptyState, ErrorState, Loading, Metric } from '../../comp
 import { EvaluationView } from '../../features/evaluation/EvaluationView';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
 import { DdsProtocolView } from '../../features/dds/DdsProtocolView';
-import type { Evaluation } from '../../shared/types';
+import { useRealtimeChannel } from '../../shared/realtime/useRealtimeChannel';
+import type { Evaluation, StudentMessage } from '../../shared/types';
+
+/** Опрос оценки: частый — без канала, редкий — страховка при живом канале. */
+const POLL_MS = 1500;
+const POLL_WITH_CHANNEL_MS = 6000;
 
 export function ResultPage() {
   const { attemptId = '' } = useParams();
@@ -15,6 +20,20 @@ export function ResultPage() {
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   /** оценка существует и ещё считается; false — проверять пока нечего */
   const [awaiting, setAwaiting] = useState(true);
+
+  // Слои оценки приходят по каналу попытки (evaluationUpdated) — без ожидания опроса.
+  const channel = useRealtimeChannel<StudentMessage>({
+    enabled: evaluation?.status !== 'done',
+    channelKey: attemptId,
+    connect: (_since, handlers) => api.realtime.attempt(attemptId, handlers),
+    onMessage: (message) => {
+      if (message.type === 'evaluationUpdated' && message.evaluation) setEvaluation(message.evaluation);
+    },
+  });
+  const channelOpen = useRef(false);
+  useEffect(() => {
+    channelOpen.current = channel.status === 'open';
+  }, [channel.status]);
 
   /*
    * Слои оценки доезжают асинхронно: опрашиваем, пока status не стал done.
@@ -33,7 +52,7 @@ export function ResultPage() {
           setEvaluation(ev);
           setAwaiting(ev != null);
           if (ev && (ev.status === 'pending' || ev.status === 'partial')) {
-            timer = setTimeout(poll, 1500);
+            timer = setTimeout(poll, channelOpen.current ? POLL_WITH_CHANNEL_MS : POLL_MS);
           }
         })
         // Ошибку самой попытки показывает useAsync ниже; здесь важно лишь

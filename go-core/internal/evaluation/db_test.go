@@ -936,11 +936,19 @@ func TestDBEvaluationAccess(t *testing.T) {
 		{"teacher", uuid.New(), 404},
 		{"teacher", open, 404},
 		{"teacher2", open, 403},
-		{"admin", a, 200},
+		{"admin", a, 409}, // ТЗ: администратор не меняет оценки во время активного занятия
 	} {
 		if r := do(f.h, http.MethodPost, ov(tc.id), tc.user, body, true); r.Code != tc.status {
 			t.Errorf("%s override %s: %d %s, want %d", tc.user, tc.id, r.Code, r.Body, tc.status)
 		}
+	}
+	if v := f.view(t, a); v["override"] != nil {
+		t.Fatalf("оценка изменена администратором во время занятия: %v", v["override"])
+	}
+	// После завершения занятия администратор может скорректировать оценку.
+	f.finishLesson(t, lesson)
+	if r := do(f.h, http.MethodPost, ov(a), "admin", body, true); r.Code != 200 {
+		t.Fatalf("admin override после завершения: %d %s", r.Code, r.Body)
 	}
 	ev := f.view(t, a)
 	o := ev["override"].(map[string]any)

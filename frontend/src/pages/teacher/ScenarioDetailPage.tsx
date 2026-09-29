@@ -5,6 +5,7 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, ScenarioStatusBadge } from '../../components/ui';
 import { EtalonCardView } from '../../features/incident-card/EtalonCardView';
 import { ScenarioEditor } from '../../features/scenario/ScenarioEditor';
+import { TtsPreviewButton } from '../../features/scenario/TtsPreviewButton';
 import { formatDateTime } from '../../shared/utils/time';
 import { labelForPath } from '../../shared/utils/labels';
 import {
@@ -114,6 +115,7 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
             )}
             <Badge tone="neutral">Эталон, версия {s.etalonVersion}</Badge>
             {s.source === 'generated' && <Badge tone="warn">Сгенерирован</Badge>}
+            {s.source === 'student' && <Badge tone="accent">Из карточки обучающегося</Badge>}
           </div>
         </div>
 
@@ -229,8 +231,11 @@ function ScenarioDetail({ scenarioId }: { scenarioId: string }) {
                     background: 'var(--u-surface-2)',
                   }}
                 >
-                  <div className="dim small">
-                    {turn.speaker === 'caller' ? 'Заявитель' : 'Подсказка оператору'}
+                  <div className="row row--between">
+                    <span className="dim small">
+                      {turn.speaker === 'caller' ? 'Заявитель' : 'Подсказка оператору'}
+                    </span>
+                    {turn.speaker === 'caller' && <TtsPreviewButton scenarioId={s.id} text={turn.text} />}
                   </div>
                   <div>{turn.text}</div>
                 </div>

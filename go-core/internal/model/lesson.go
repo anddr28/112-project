@@ -14,6 +14,31 @@ const (
 	PerspectiveDDS         = "dds"
 )
 
+// Источник карточек пула занятия (lessons.settings.card_source, контракт v1.4 CardSource):
+// сгенерированные системой (source ≠ student), сформированные обучающимися (source =
+// student) или смешанный пул (по умолчанию — как было до v1.4).
+const (
+	CardSourceGenerated = "generated"
+	CardSourceStudent   = "student"
+	CardSourceMixed     = "mixed"
+)
+
+// ValidCardSource — значение из enum CardSource.
+func ValidCardSource(s string) bool {
+	return s == CardSourceGenerated || s == CardSourceStudent || s == CardSourceMixed
+}
+
+// CardSourceAllows — сценарий с источником scenarioSource допустим в пуле с источником cardSource.
+func CardSourceAllows(cardSource, scenarioSource string) bool {
+	switch cardSource {
+	case CardSourceGenerated:
+		return scenarioSource != "student"
+	case CardSourceStudent:
+		return scenarioSource == "student"
+	}
+	return true
+}
+
 // Ввод реплик оператора (lessons.settings.voice.input).
 const (
 	VoiceInputVoice = "voice"
@@ -30,6 +55,7 @@ type LessonSettings struct {
 	AllowReplay     bool             `json:"allow_replay"`
 	Voice           settings.Voice   `json:"voice"`
 	Perspective     string           `json:"perspective"` // operator112 | dds
+	CardSource      string           `json:"card_source"` // generated | student | mixed (v1.4)
 }
 
 // IsDDS — ракурс «Диспетчер ДДС»: карточка приходит от оператора 112, обучающийся
@@ -51,6 +77,7 @@ func DefaultLessonSettings(s *settings.Snapshot) LessonSettings {
 		AllowReplay:     s.AllowReplay,
 		Voice:           s.Voice,
 		Perspective:     PerspectiveOperator112,
+		CardSource:      CardSourceMixed,
 	}
 	out.fix()
 	return out
@@ -82,6 +109,9 @@ func (s *LessonSettings) fix() {
 	}
 	if s.Perspective != PerspectiveDDS {
 		s.Perspective = PerspectiveOperator112
+	}
+	if !ValidCardSource(s.CardSource) {
+		s.CardSource = CardSourceMixed // занятия до v1.4: пул не проверялся по источнику
 	}
 	switch s.Voice.Input {
 	case VoiceInputVoice, VoiceInputText, VoiceInputBoth:

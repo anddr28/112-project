@@ -7,7 +7,23 @@ import { Badge, Card, ErrorState, Field, LessonStatusBadge, Loading, Modal, Numb
 import { formatDate } from '../../shared/utils/time';
 import { shortName } from '../../shared/utils/user';
 import { groupByVersions, versionNo } from '../../features/scenario/versioning';
-import type { ArmPerspective, Difficulty, LessonSettings, VoiceInput, VoiceSettings } from '../../shared/types';
+import type { ArmPerspective, CardSource, Difficulty, LessonSettings, Scenario, VoiceInput, VoiceSettings } from '../../shared/types';
+
+/**
+ * ТЗ, «действия с карточками»: пул занятия — из карточек, сгенерированных
+ * системой, сформированных обучающимися или смешанный. Карточка обучающегося —
+ * сценарий с source = student (кнопка «Сделать сценарием» в разборе попытки).
+ */
+const CARD_SOURCES: Array<{ value: CardSource; label: string }> = [
+  { value: 'mixed', label: 'Смешанный' },
+  { value: 'generated', label: 'Сгенерированные системой' },
+  { value: 'student', label: 'Сформированные обучающимися' },
+];
+
+function matchesSource(s: Scenario, source: CardSource): boolean {
+  if (source === 'mixed') return true;
+  return source === 'student' ? s.source === 'student' : s.source !== 'student';
+}
 
 /** Доли слоёв в процентах — так их складывает и правит преподаватель. */
 type WeightPct = Record<keyof LessonSettings['weights'], number>;
@@ -107,6 +123,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
   const [weightPct, setWeightPct] = useState<WeightPct | null>(null);
   const [scenarioIds, setScenarioIds] = useState<string[]>(initialScenarioId ? [initialScenarioId] : []);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [cardSource, setCardSource] = useState<CardSource>('mixed');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Сценарии и участники, на которые указал сервер в отказе (details) — подсвечиваются. */
@@ -142,6 +159,9 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
    * переспрашивание не применяются, разговор не оценивается.
    */
   const isDds = perspective === 'dds';
+  // Источник карточек — только у «действий с карточками» (ракурс ДДС); в пул попадают подходящие сценарии.
+  const source: CardSource = isDds ? cardSource : 'mixed';
+  const pool = validated.filter(({ scenario }) => matchesSource(scenario, source));
   const voiceOn = !isDds && (voiceSettings?.enabled ?? false);
 
   /** Вес разговора учитывается только при включённом голосе. */
@@ -200,6 +220,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
         timeLimitSec,
         scenarioIds,
         participantIds,
+        cardSource: isDds ? cardSource : undefined,
         passThreshold: threshold ?? 0,
         allowReplay: isDds ? false : allowReplay,
         voice: isDds ? { ...voiceSettings, enabled: false } : voiceSettings,
@@ -271,6 +292,29 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
             <NumberInput min={10} max={600} value={timeLimitSec} onChange={setTimeLimitSec} />
           </Field>
         </div>
+
+        {isDds && (
+          <Field
+            label="Источник карточек"
+            hint="Из каких карточек собирается пул занятия. Карточка обучающегося становится сценарием в разборе попытки («Сделать сценарием»)."
+          >
+            <select
+              className="select"
+              value={cardSource}
+              onChange={(e) => {
+                const next = e.target.value as CardSource;
+                setCardSource(next);
+                // Уже выбранные сценарии другого источника в пул не пройдут — снимаем выбор сразу.
+                setScenarioIds((ids) => ids.filter((id) => {
+                  const sc = allScenarios.find((x) => x.id === id);
+                  return sc ? matchesSource(sc, next) : false;
+                }));
+              }}
+            >
+              {CARD_SOURCES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </Field>
+        )}
 
         <div className="grid grid--3">
           <Field label="Порог зачёта, баллов">
@@ -375,9 +419,15 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
             <Loading text="Загрузка сценариев…" />
           ) : validated.length === 0 ? (
             <p className="muted small">Нет подтверждённых сценариев. Сначала подтвердите сценарий.</p>
+          ) : pool.length === 0 ? (
+            <p className="muted small">
+              {source === 'student'
+                ? 'Подтверждённых сценариев из карточек обучающихся нет. Создайте их из разбора оценённой попытки — «Сделать сценарием».'
+                : 'Нет подтверждённых сценариев, сгенерированных системой.'}
+            </p>
           ) : (
             <div className="stack" style={{ gap: 6 }}>
-              {validated.map(({ scenario: s, grouped }) => (
+              {pool.map(({ scenario: s, grouped }) => (
                 <label key={s.id} className="row" style={{ padding: '7px 10px', border: `1px solid ${rejected.includes(s.id) ? 'var(--u-danger)' : 'var(--u-border)'}`, borderRadius: 4, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -386,6 +436,7 @@ function CreateLessonModal({ onClose, initialScenarioId }: { onClose: () => void
                   />
                   <span>{s.title}</span>
                   {grouped && <Badge tone="accent">версия {versionNo(s)}</Badge>}
+                  {s.source === 'student' && <Badge tone="neutral">карточка обучающегося</Badge>}
                   <span className="dim small">· {s.categoryName} · сложность {s.difficulty}</span>
                 </label>
               ))}

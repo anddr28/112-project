@@ -3,6 +3,7 @@ import { api, hasErrorCode } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
 import { Card, Field, NumberInput } from '../../components/ui';
 import { scenarioSaveError } from './versioning';
+import { TtsPreviewButton } from './TtsPreviewButton';
 import { APPLICANT_STATUSES } from '../../shared/types';
 import type {
   ApplicantStatus, ChecklistItemKind, DialogueBrief, DialogueChecklistItem, DialogueFact,
@@ -229,6 +230,7 @@ export function ScenarioEditor({
                   patch({ turns });
                 }}
               />
+              {turn.speaker === 'caller' && <TtsPreviewButton scenarioId={scenario.id} text={turn.text} />}
               <button
                 type="button"
                 className="btn btn--sm"

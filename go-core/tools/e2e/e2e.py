@@ -135,7 +135,7 @@ def wait_for(fn, timeout, what):
     ok(False, f"timeout waiting: {what}")
 
 
-def dds_flow(t, s, student, scs, T):
+def dds_flow(t, s, student, scs, T, adm=None):
     """Ракурс «Диспетчер ДДС» (v1.3): карточка приходит от оператора 112, обучающийся —
     диспетчер своей службы (демо-студент — профиль ДДС ЖКХ)."""
     print("== ракурс «Диспетчер ДДС»")
@@ -197,8 +197,108 @@ def dds_flow(t, s, student, scs, T):
     sem_facts = set((ev.get("semantic") or {}).get("missingFacts") or [])
     ok(st == 200 and call_facts and not (sem_facts & call_facts),
        f"смысл ДДС — по действиям диспетчера, не по фактам звонка (не зафиксировано: {sorted(sem_facts)})")
+    if adm is not None:
+        # ТЗ (v1.4): администратор не меняет оценки во время активного занятия
+        st, bad = adm.req("POST", base + "/evaluation/override", {"score": 50, "reason": "Проверка запрета"})
+        ok(st == 409 and bad.get("code") == "conflict", "админ: корректировка оценки во время занятия -> 409")
     st, fin = t.req("POST", f"/lessons/{lesson['id']}/finish")
     ok(st == 200 and fin["status"] == "finished", "завершение занятия ДДС")
+
+
+def v14_flow(t, s, adm, student, att, scs, T):
+    """Контракт v1.4: справочная база, аналитика с инсайтами, сертификат, пакеты сценариев,
+    сценарий из карточки обучающегося, источник карточек занятия, системный журнал."""
+    print("== v1.4: справочная база")
+    st, mats = s.req("GET", "/materials")
+    system = [m for m in mats if m.get("system")] if st == 200 else []
+    ok(st == 200 and len(system) >= 5 and all("content" not in m for m in mats), f"системные материалы ({len(system)})")
+    st, m = s.req("GET", f"/materials/{system[0]['id']}")
+    ok(st == 200 and "АРМ-112" in m.get("content", ""), "материал с текстом (Markdown)")
+    st, _ = s.multipart("/materials", {"title": "Студент"}, {})
+    ok(st == 403, "студенту добавлять материалы нельзя")
+    pdf = b"%PDF-1.4\n" + b"0" * 4096 + b"\n%%EOF\n"
+    st, mt = t.multipart("/materials", {"title": "E2E памятка смены", "category": "E2E", "content": "# Смена\nТекст"},
+                         {"file": ("Памятка смены.pdf", "application/pdf", pdf)})
+    ok(st == 201 and mt["hasFile"] and mt["mimeType"] == "application/pdf" and mt["sizeBytes"] == len(pdf), "загрузка PDF (201)")
+    st, body, hdr = s.req("GET", f"/materials/{mt['id']}/file", raw=True)
+    ok(st == 200 and body == pdf and hdr.get("Content-Disposition", "").startswith("inline;"), "скачивание файла (inline)")
+    st, body, hdr = s.req("GET", f"/materials/{mt['id']}/file", raw=True, headers={"Range": "bytes=0-3"})
+    ok(st == 206 and body == b"%PDF", "Range-запрос файла (206)")
+    st, bad = t.multipart("/materials", {"title": "Подмена"}, {"file": ("virus.pdf", "application/pdf", b"MZ\x90\x00")})
+    ok(st == 400 and "file" in bad.get("details", {}).get("fields", {}), "подмена расширения отклонена (400)")
+    st, found = s.req("GET", "/materials", query={"q": "памятка смены"})
+    ok(st == 200 and [x["id"] for x in found] == [mt["id"]], "поиск по названию")
+    st, _ = adm.req("DELETE", f"/materials/{system[0]['id']}")
+    ok(st == 409, "системный материал не удаляется (409)")
+    st, _ = t.req("DELETE", f"/materials/{mt['id']}")
+    ok(st == 204, "автор удалил свой материал (204)")
+
+    print("== v1.4: аналитика группы")
+    st, ov = t.req("GET", "/analytics/overview", query={"days": 30})
+    ok(st == 200 and ov["summary"]["attempts"] >= 2 and ov["scope"]["days"] == 30, f"сводка ({ov.get('summary')})")
+    ok(isinstance(ov["heatmap"]["cells"], list) and len(ov["heatmap"]["cells"]) == len(ov["heatmap"]["rows"])
+       and all(len(r) == len(ov["heatmap"]["cols"]) for r in ov["heatmap"]["cells"]), "тепловая карта: строки × столбцы")
+    ok(all(isinstance(ov[k], list) for k in ("layers", "trend", "topFieldErrors", "topMissingFacts", "topGrammarRules",
+                                              "students", "categories", "insights")), "разделы аналитики — массивы")
+    ok(len(ov["insights"]) >= 1 and all(i["title"] and i["body"] and i["severity"] in ("info", "warning", "critical")
+                                        for i in ov["insights"]), f"инсайты ({len(ov['insights'])})")
+    st, ovs = t.req("GET", "/analytics/overview", query={"studentId": student["id"]})
+    ok(st == 200 and ovs["summary"]["students"] <= 1, "фильтр по обучающемуся")
+    st, _ = s.req("GET", "/analytics/overview")
+    ok(st == 403, "студенту аналитика недоступна")
+    st, _ = t.req("GET", "/analytics/overview", query={"days": 0})
+    ok(st == 400, "days=0 -> 400")
+
+    print("== v1.4: сертификат")
+    st, body, hdr = s.req("GET", f"/users/{student['id']}/certificate", query={"tz": "Europe/Moscow"}, raw=True)
+    ok(st == 200 and body[:4] == b"%PDF" and "attachment" in hdr.get("Content-Disposition", ""), f"PDF-сертификат ({len(body)} байт)")
+    st, body, _ = t.req("GET", f"/users/{student['id']}/certificate", raw=True)
+    ok(st == 200 and body[:4] == b"%PDF", "сертификат выгружает преподаватель")
+    login = "e2ec" + uuid.uuid4().hex[:6]
+    st, fresh = adm.req("POST", "/users", {"login": login, "password": "Secret123!", "role": "student", "lastName": "Новый", "firstName": "Тест"})
+    st, bad = adm.req("GET", f"/users/{fresh['id']}/certificate")
+    ok(st == 409 and bad.get("code") == "conflict", "без оценённых попыток -> 409")
+
+    print("== v1.4: пакеты сценариев")
+    st, bundle = t.req("GET", "/scenarios/export")
+    ok(st == 200 and bundle["format"] == "lct112.scenarios.v1" and len(bundle["scenarios"]) >= 1, f"экспорт ({len(bundle['scenarios'])})")
+    part = dict(bundle, scenarios=bundle["scenarios"][:2] + [dict(bundle["scenarios"][0], categoryId="нет-такой")])
+    st, res = t.req("POST", "/scenarios/import", part)
+    ok(st == 200 and len(res["created"]) == min(2, len(bundle["scenarios"])) and len(res["rejected"]) == 1
+       and res["rejected"][0]["index"] == len(part["scenarios"]) - 1, "импорт: частичный успех с причинами")
+    st, imp = t.req("GET", f"/scenarios/{res['created'][0]['scenarioId']}")
+    src = bundle["scenarios"][0]
+    ok(st == 200 and imp["status"] == "draft" and imp["title"] == src["title"]
+       and [x["text"] for x in imp["callScript"]["turns"]] == [x["text"] for x in src["callScript"]["turns"]]
+       and imp["requiredFields"] == src.get("requiredFields"), "экспорт → импорт: содержание совпадает")
+    st, _ = s.req("GET", "/scenarios/export")
+    ok(st == 403, "студенту экспорт недоступен")
+
+    print("== v1.4: сценарий из карточки обучающегося, источник карточек")
+    st, sc = t.req("POST", f"/attempts/{att['id']}/to-scenario", {})
+    ok(st == 201 and sc["source"] == "student" and sc["status"] == "draft" and sc["mode"] == "card_actions",
+       "карточка обучающегося -> сценарий (source=student)")
+    st, dup = t.req("POST", f"/attempts/{att['id']}/to-scenario")
+    ok(st == 409 and dup.get("details", {}).get("scenarioId") == sc["id"], "повтор -> 409 с details.scenarioId")
+    generated = [x["id"] for x in scs if x["status"] == "validated" and x["mode"] in ("cards", "both")][:1]
+    body = {"title": "E2E только карточки обучающихся", "mode": "cards", "timeLimitSec": 60, "scenarioIds": generated,
+            "participantIds": [student["id"]], "cardSource": "student"}
+    st, bad = t.req("POST", "/lessons", body)
+    ok(st == 422 and bad.get("details", {}).get("scenarioIds") == generated, "cardSource=student: чужой пул -> 422")
+    body.update(cardSource="generated", title="E2E сгенерированные карточки")
+    st, les = t.req("POST", "/lessons", body)
+    ok(st == 201 and les["settings"].get("cardSource") == "generated", "cardSource=generated сохранён в настройках")
+    st, ds = t.req("GET", "/lessons/default-settings")
+    ok(st == 200 and ds.get("cardSource") == "mixed", "cardSource по умолчанию — mixed")
+
+    print("== v1.4: системный журнал")
+    st, logs = adm.req("GET", "/admin/logs", query={"limit": 50})
+    ok(st == 200 and isinstance(logs, list) and len(logs) >= 1 and all(x["level"] in ("info", "warn", "error") for x in logs),
+       f"журнал ({len(logs)} записей)")
+    st, errs = adm.req("GET", "/admin/logs", query={"level": "error"})
+    ok(st == 200 and all(x["level"] == "error" for x in errs), "фильтр уровня error")
+    st, _ = t.req("GET", "/admin/logs")
+    ok(st == 403, "преподавателю журнал недоступен")
 
 
 def main():
@@ -396,11 +496,12 @@ def main():
     st, fin = t.req("POST", f"/lessons/{lesson['id']}/finish")
     ok(st == 200 and fin["status"] == "finished", "завершение занятия")
 
-    dds_flow(t, s, student, scs, T)
-
-    print("== администратор")
     adm = Client(a.base)
     adm.login("admin", "admin")
+    dds_flow(t, s, student, scs, T, adm)
+    v14_flow(t, s, adm, student, att, scs, T)
+
+    print("== администратор")
     st, h = adm.req("GET", "/admin/health")
     ok(st == 200 and h["postgres"]["ok"] and "aiService" in h, f"health ({h.get('status')})")
     st, sets = adm.req("GET", "/admin/settings")

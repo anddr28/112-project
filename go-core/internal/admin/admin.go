@@ -54,6 +54,7 @@ type Deps struct {
 	Publisher core.Publisher
 	Auditor   core.Auditor
 	StartedAt time.Time // момент старта процесса — для goCore.uptimeSec
+	Logs      LogSource // кольцо системного журнала (GET /admin/logs); nil — пустой журнал
 	Log       *slog.Logger
 
 	// BroadcastEvery — период aiHealth в мониторы занятий (0 — 10 с).
@@ -72,6 +73,7 @@ type Handlers struct {
 	pub     core.Publisher
 	aud     core.Auditor
 	started time.Time
+	logs    LogSource
 	log     *slog.Logger
 
 	every time.Duration
@@ -109,6 +111,7 @@ func New(d Deps) *Handlers {
 		pub:     d.Publisher,
 		aud:     d.Auditor,
 		started: started,
+		logs:    d.Logs,
 		log:     log.With("component", "admin"),
 		every:   every,
 		kick:    make(chan struct{}, 1),
@@ -125,6 +128,7 @@ func (h *Handlers) Register(r *httpx.Router) {
 	r.Handle("GET /admin/audit", admin, h.listAudit)
 	r.Handle("GET /admin/backups", admin, h.listBackups)
 	r.Handle("POST /admin/backups", admin, h.runBackup)
+	r.Handle("GET /admin/logs", admin, h.listLogs)
 }
 
 // newOf — новый нулевой T по указателю нужного типа. Нужен для анонимных вложенных

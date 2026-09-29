@@ -14,6 +14,8 @@ import type {
   DialogueTurnView, Evaluation, IncidentCardDraft,
   IncidentType, Lesson, LessonMode, LessonSettings, ArmPerspective, ReactionStatus, Scenario,
   Role, ServiceRef, StudentCallScript, SystemHealth, TeacherFeedback, User, VoiceSettings,
+  AnalyticsOverview, AudioRef, AuditEntry, Backup, CardSource, LogEntry, LogLevel, Material, MonitorMessage,
+  ScenarioBundle, ScenarioImportResult, Setting, StudentMessage, StudentProgress,
 } from '../types';
 
 export interface LoginInput {
@@ -64,6 +66,8 @@ export interface CreateLessonInput {
   voice?: VoiceSettings;
   /** переопределение весов слоёв; не передано — параметры по умолчанию */
   weights?: LessonSettings['weights'];
+  /** v1.4: источник карточек пула «действий с карточками»; нет — mixed */
+  cardSource?: CardSource;
 }
 
 /**
@@ -175,6 +179,13 @@ export interface Api {
      * У mock-реализации метода нет: учётки mock — фикстуры.
      */
     create?(input: CreateUserInput): Promise<User>;
+    /** Прогресс обучающегося (v1.2): преподавателю — любого, обучающемуся — свой. */
+    progress(userId: string): Promise<StudentProgress>;
+    /**
+     * Сертификат о прохождении подготовки (v1.4, PDF формирует сервер).
+     * 409 `conflict` — нет ни одной оценённой попытки.
+     */
+    certificate(userId: string): Promise<DownloadedFile>;
   };
 
   address: {
@@ -201,6 +212,17 @@ export interface Api {
     createVersion(id: string): Promise<Scenario>;
     approve(id: string): Promise<Scenario>;
     reject(id: string, reason: string): Promise<Scenario>;
+    /** Реплика голосом заявителя (синхронно). 503 `ai_unavailable` — синтез недоступен. */
+    ttsPreview(id: string, text: string): Promise<AudioRef>;
+    /** Пакет для переноса (v1.4); без ids — все подтверждённые. */
+    exportBundle(ids?: string[]): Promise<ScenarioBundle>;
+    /** Пакетный импорт: каждый сценарий — новый черновик; ошибки по элементам не отменяют остальные. */
+    importBundle(bundle: ScenarioBundle): Promise<ScenarioImportResult>;
+    /**
+     * Сценарий из карточки обучающегося (v1.4): source=student, draft.
+     * 409 с `details.scenarioId`, если по этой попытке сценарий уже создан.
+     */
+    fromAttempt(attemptId: string, title?: string): Promise<Scenario>;
   };
 
   lessons: {
@@ -285,13 +307,91 @@ export interface Api {
     allowedNext(current: ReactionStatus, serviceCode: string): Promise<AllowedTransition[]>;
   };
 
-  /**
-   * Технический раздел администратора. Состояние контура знает только сервер:
-   * у mock-реализации раздела нет, и экран честно пишет «нет данных».
-   */
-  admin?: {
-    health(): Promise<SystemHealth>;
+  /** Аналитика группы (v1.4): преподавателю — по своим занятиям, администратору — по всем. */
+  analytics: {
+    overview(filter: AnalyticsFilter): Promise<AnalyticsOverview>;
   };
+
+  /** Справочная база и методматериалы (v1.4). */
+  materials: {
+    /** Только метаданные, без текста. */
+    list(filter: { category?: string; q?: string }): Promise<Material[]>;
+    get(id: string): Promise<Material>;
+    /** Файл до 20 МБ; 413 — больше. */
+    create(input: CreateMaterialInput): Promise<Material>;
+    /** 409 — системный материал из поставки. */
+    remove(id: string): Promise<void>;
+    /** Адрес файла для <a>/<iframe>/<audio>: авторизация по cookie сессии. */
+    fileUrl(material: Material): string;
+  };
+
+  /**
+   * Каналы реального времени (WebSocket). Переподключение и `since` — забота
+   * вызывающего (`shared/realtime`): реализация только открывает соединение.
+   */
+  realtime: {
+    lessonMonitor(lessonId: string, since: number | undefined, handlers: RealtimeHandlers<MonitorMessage>): RealtimeConnection;
+    attempt(attemptId: string, handlers: RealtimeHandlers<StudentMessage>): RealtimeConnection;
+  };
+
+  /** Технический раздел администратора. */
+  admin: {
+    health(): Promise<SystemHealth>;
+    settings(): Promise<Setting[]>;
+    updateSetting(key: string, value: unknown): Promise<Setting>;
+    /** Новые сверху; следующая страница — `beforeId` = id последней записи. */
+    audit(filter: AuditFilter): Promise<AuditEntry[]>;
+    backups(): Promise<Backup[]>;
+    /** 409 `conflict` — копирование уже идёт. */
+    runBackup(): Promise<Backup>;
+    /** Системный журнал (v1.4): последние записи кольцевого буфера, новые сверху. */
+    logs(filter: { level?: LogLevel; q?: string; limit?: number }): Promise<LogEntry[]>;
+  };
+}
+
+export interface AnalyticsFilter {
+  lessonId?: string;
+  studentId?: string;
+  categoryId?: string;
+  days?: number;
+}
+
+export interface AuditFilter {
+  actorId?: string;
+  /** точное имя или префикс с точкой: «user.» */
+  action?: string;
+  entityType?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+  beforeId?: number;
+  limit?: number;
+}
+
+export interface CreateMaterialInput {
+  title: string;
+  description?: string;
+  category?: string;
+  /** Markdown */
+  content?: string;
+  file?: File;
+}
+
+/** Файл, полученный запросом (а не ссылкой): так видна ошибка сервера, а не скачанный JSON. */
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string;
+}
+
+export interface RealtimeHandlers<M> {
+  onOpen(): void;
+  onMessage(message: M): void;
+  /** code 1008 — сессия отозвана: переподключаться бессмысленно */
+  onClose(code: number): void;
+}
+
+export interface RealtimeConnection {
+  close(): void;
 }
 
 export type ReportFormat = 'csv' | 'xlsx' | 'pdf';

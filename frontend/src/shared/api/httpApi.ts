@@ -11,7 +11,7 @@
 import { ApiRequestError } from './error';
 import { sessionLost } from './session';
 import { browserTimeZone } from '../utils/time';
-import type { Api } from './types';
+import type { Api, DownloadedFile, RealtimeConnection, RealtimeHandlers } from './types';
 import type { ApiErrorCode } from '../types';
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api/v1';
@@ -72,11 +72,16 @@ async function requestAll<T>(path: string, limit: number): Promise<T[]> {
   return items;
 }
 
-async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+function apiUrl(path: string, query: RequestOptions['query'] = {}): URL {
   const url = new URL(BASE + path, window.location.origin);
-  for (const [k, v] of Object.entries(options.query ?? {})) {
+  for (const [k, v] of Object.entries(query)) {
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
+  return url;
+}
+
+async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const url = apiUrl(path, options.query);
 
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (method !== 'GET') headers['X-Requested-With'] = 'fetch';
@@ -119,16 +124,88 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     return data as T;
   }
 
+  throw failure(res, path, data);
+}
+
+/** Ответ-ошибка сервера → `ApiRequestError`; 401/423 заодно завершают сеанс. */
+function failure(res: Response, path: string, data: unknown): ApiRequestError {
   const err = (data ?? {}) as { code?: ApiErrorCode; message?: string; details?: Record<string, unknown> };
   // Вход и проверка сессии отвечают 401 штатно; на остальных запросах это потеря сессии.
   if (res.status === 423) sessionLost('user_blocked');
   else if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') sessionLost('unauthorized');
   const retry = Number(res.headers.get('Retry-After'));
-  throw new ApiRequestError(err.code ?? STATUS_CODE[res.status] ?? 'internal', err.message ?? fallbackMessage(res.status), {
+  return new ApiRequestError(err.code ?? STATUS_CODE[res.status] ?? 'internal', err.message ?? fallbackMessage(res.status), {
     status: res.status,
     details: err.details,
     retryAfterSec: Number.isFinite(retry) && retry > 0 ? retry : undefined,
   });
+}
+
+/**
+ * Файл, который формирует сервер (PDF-сертификат). Не ссылкой, а запросом:
+ * отказ (409 «нет оценённых попыток») приходит JSON-ом, и по ссылке браузер
+ * скачал бы его как файл вместо понятного сообщения.
+ */
+async function download(path: string, query: RequestOptions['query'], fallbackName: string): Promise<DownloadedFile> {
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path, query), { credentials: 'include' });
+  } catch {
+    throw new ApiRequestError('internal', 'Нет связи с сервером. Проверьте подключение.');
+  }
+  if (!res.ok) {
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      data = undefined;
+    }
+    throw failure(res, path, data);
+  }
+  return { blob: await res.blob(), fileName: fileNameOf(res.headers.get('Content-Disposition')) ?? fallbackName };
+}
+
+/** Имя файла из Content-Disposition: сначала RFC 5987 (`filename*=UTF-8''…`, кириллица), затем простое. */
+function fileNameOf(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      // битое кодирование — берём простое имя
+    }
+  }
+  return /filename="?([^";]+)"?/i.exec(header)?.[1];
+}
+
+/**
+ * WebSocket того же хоста: cookie сессии уходит сама (контракт). Схема —
+ * по странице: https → wss, иначе браузер заблокирует смешанное содержимое.
+ */
+function openSocket<M>(path: string, query: RequestOptions['query'], handlers: RealtimeHandlers<M>): RealtimeConnection {
+  const url = apiUrl(path, query);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  let closedByClient = false;
+  const ws = new WebSocket(url);
+  ws.onopen = () => handlers.onOpen();
+  ws.onmessage = (e) => {
+    try {
+      handlers.onMessage(JSON.parse(String(e.data)) as M);
+    } catch {
+      // Нечитаемое сообщение пропускаем: следующее по seq всё равно придёт,
+      // а пропуск восстановит переподключение с since.
+    }
+  };
+  ws.onclose = (e) => {
+    if (!closedByClient) handlers.onClose(e.code);
+  };
+  return {
+    close() {
+      closedByClient = true;
+      ws.close(1000);
+    },
+  };
 }
 
 /** Отсутствие ресурса, которое для UI означает «ещё нет», а не ошибку. */
@@ -169,6 +246,9 @@ export const httpApi: Api = {
     list: () => requestAll('/users', 500),
     setBlocked: (userId, blocked) => request('PUT', `/users/${enc(userId)}/blocked`, { body: { blocked } }),
     create: (input) => request('POST', '/users', { body: input }),
+    progress: (userId) => request('GET', `/users/${enc(userId)}/progress`),
+    certificate: (userId) =>
+      download(`/users/${enc(userId)}/certificate`, { tz: browserTimeZone() }, 'Сертификат.pdf'),
   },
 
   address: {
@@ -189,6 +269,13 @@ export const httpApi: Api = {
     createVersion: (id) => request('POST', `/scenarios/${enc(id)}/versions`),
     approve: (id) => request('POST', `/scenarios/${enc(id)}/approve`),
     reject: (id, reason) => request('POST', `/scenarios/${enc(id)}/reject`, { body: { reason } }),
+    // Синтез идёт синхронно в ai-service — запас по времени, как у хода разговора.
+    ttsPreview: (id, text) =>
+      request('POST', `/scenarios/${enc(id)}/tts-preview`, { body: { text }, timeoutMs: DIALOGUE_TIMEOUT_MS }),
+    exportBundle: (ids) => request('GET', '/scenarios/export', { query: { ids: ids?.join(',') } }),
+    importBundle: (bundle) => request('POST', '/scenarios/import', { body: bundle, timeoutMs: DIALOGUE_TIMEOUT_MS }),
+    fromAttempt: (attemptId, title) =>
+      request('POST', `/attempts/${enc(attemptId)}/to-scenario`, { body: title ? { title } : {} }),
   },
 
   lessons: {
@@ -268,7 +355,51 @@ export const httpApi: Api = {
     allowedNext: (current, serviceCode) => request('GET', '/reaction/transitions', { query: { current, serviceCode } }),
   },
 
+  analytics: {
+    overview: (f) =>
+      request('GET', '/analytics/overview', {
+        query: { lessonId: f.lessonId, studentId: f.studentId, categoryId: f.categoryId, days: f.days },
+        // ТЗ: ответ аналитики — до 30 с.
+        timeoutMs: 30_000,
+      }),
+  },
+
+  materials: {
+    list: (f) => request('GET', '/materials', { query: { category: f.category, q: f.q } }),
+    get: (id) => request('GET', `/materials/${enc(id)}`),
+    create: (input) => {
+      const form = new FormData();
+      form.set('title', input.title);
+      if (input.description) form.set('description', input.description);
+      if (input.category) form.set('category', input.category);
+      if (input.content) form.set('content', input.content);
+      if (input.file) form.set('file', input.file, input.file.name);
+      // Файл до 20 МБ в локальной сети — таймаут с запасом.
+      return request('POST', '/materials', { form, timeoutMs: 120_000 });
+    },
+    remove: (id) => request('DELETE', `/materials/${enc(id)}`),
+    fileUrl: (m) => `${BASE}/materials/${enc(m.id)}/file`,
+  },
+
+  realtime: {
+    lessonMonitor: (lessonId, since, handlers) =>
+      openSocket(`/ws/lessons/${enc(lessonId)}/monitor`, { since }, handlers),
+    attempt: (attemptId, handlers) => openSocket(`/ws/attempts/${enc(attemptId)}`, {}, handlers),
+  },
+
   admin: {
     health: () => request('GET', '/admin/health'),
+    settings: () => request('GET', '/admin/settings'),
+    updateSetting: (key, value) => request('PUT', `/admin/settings/${enc(key)}`, { body: { value } }),
+    audit: (f) =>
+      request('GET', '/admin/audit', {
+        query: {
+          actorId: f.actorId, action: f.action, entityType: f.entityType, entityId: f.entityId,
+          from: f.from, to: f.to, beforeId: f.beforeId, limit: f.limit,
+        },
+      }),
+    backups: () => request('GET', '/admin/backups'),
+    runBackup: () => request('POST', '/admin/backups'),
+    logs: (f) => request('GET', '/admin/logs', { query: { level: f.level, q: f.q, limit: f.limit } }),
   },
 };

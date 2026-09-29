@@ -1,0 +1,322 @@
+{
+  "meta": {
+    "bench": {
+      "host": "Darwin 25.3.0 arm64",
+      "cpu": "Apple M4",
+      "cores": "10",
+      "ram": "16 GiB",
+      "os": "macOS 26.3.1",
+      "docker": "29.5.3 (linux/arm64), Docker Desktop",
+      "dockerCpus": "10",
+      "dockerMem": "10.2 GiB",
+      "goCoreImage": "lct112/go-core:dev sha256:9acd07c55c6ae217185fb171960b158e18a8461b51662b44368d1172379b61ad",
+      "goCoreVersion": "dev",
+      "postgres": "16.15",
+      "goVersion": "go version go1.26.3 darwin/arm64",
+      "toolCommit": "02d4fdb"
+    },
+    "config": {
+      "base": "https://localhost:9443",
+      "project": "lct112",
+      "recoveryLimit": "30s",
+      "requestTimeout": "15s",
+      "scenarios": [
+        "proxy:5s",
+        "proxy:15s",
+        "proxy:29s",
+        "proxyb:29s",
+        "blackhole:15s",
+        "pgrestart:10s"
+      ]
+    }
+  },
+  "scenarios": [
+    {
+      "name": "proxy:5s",
+      "kind": "proxy",
+      "description": "Обрыв сети клиента на 5s: TCP-прокси рвёт все соединения клиента (HTTP/2 и WebSocket) и отвечает connection refused на новые; ввод продолжается, во время обрыва преподаватель трижды меняет оценку прошлой карточки (3 сообщения в канал WebSocket, которые клиент пропускает).",
+      "outageSec": 5,
+      "firstSuccessfulRequestSec": 0.45,
+      "eventsOutboxFlushedSec": 0.51,
+      "draftSyncedSec": 0.46,
+      "wsReconnectSec": 0.02,
+      "wsMissedMessagesReceivedSec": 0.02,
+      "readyzOkSec": 0.17,
+      "readyzDownSec": 0,
+      "readyzTimeline": [
+        "-3.55 ok"
+      ],
+      "wsHeartbeatFails": 0,
+      "recoverySec": 0.51,
+      "eventsProduced": 44,
+      "eventsBacklogAtRestore": 21,
+      "draftVersions": 44,
+      "failedRequests": 16,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 3,
+      "wsMessagesReceivedAfterReconnect": 3,
+      "wsSeqGaps": 0,
+      "wsReconnects": 1,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        44,
+        44,
+        1,
+        44
+      ],
+      "apiClientEvents": [
+        44,
+        44,
+        1,
+        44
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.03,
+      "overrideApplied": true,
+      "pass": true
+    },
+    {
+      "name": "proxy:15s",
+      "kind": "proxy",
+      "description": "Обрыв сети клиента на 15s: TCP-прокси рвёт все соединения клиента (HTTP/2 и WebSocket) и отвечает connection refused на новые; ввод продолжается, во время обрыва преподаватель трижды меняет оценку прошлой карточки (3 сообщения в канал WebSocket, которые клиент пропускает).",
+      "outageSec": 15,
+      "firstSuccessfulRequestSec": 0.34,
+      "eventsOutboxFlushedSec": 0.51,
+      "draftSyncedSec": 0.36,
+      "wsReconnectSec": 0.07,
+      "wsMissedMessagesReceivedSec": 0.07,
+      "readyzOkSec": 0.11,
+      "readyzDownSec": 0,
+      "readyzTimeline": [
+        "-3.57 ok"
+      ],
+      "wsHeartbeatFails": 0,
+      "recoverySec": 0.51,
+      "eventsProduced": 84,
+      "eventsBacklogAtRestore": 60,
+      "draftVersions": 84,
+      "failedRequests": 47,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 3,
+      "wsMessagesReceivedAfterReconnect": 3,
+      "wsSeqGaps": 0,
+      "wsReconnects": 1,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        84,
+        84,
+        1,
+        84
+      ],
+      "apiClientEvents": [
+        84,
+        84,
+        1,
+        84
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.02,
+      "overrideApplied": true,
+      "pass": true
+    },
+    {
+      "name": "proxy:29s",
+      "kind": "proxy",
+      "description": "Обрыв сети клиента на 29s: TCP-прокси рвёт все соединения клиента (HTTP/2 и WebSocket) и отвечает connection refused на новые; ввод продолжается, во время обрыва преподаватель трижды меняет оценку прошлой карточки (3 сообщения в канал WebSocket, которые клиент пропускает).",
+      "outageSec": 29,
+      "firstSuccessfulRequestSec": 0.47,
+      "eventsOutboxFlushedSec": 0.51,
+      "draftSyncedSec": 0.76,
+      "wsReconnectSec": 0.18,
+      "wsMissedMessagesReceivedSec": 0.18,
+      "readyzOkSec": 0.06,
+      "readyzDownSec": 0,
+      "readyzTimeline": [
+        "-3.59 ok"
+      ],
+      "wsHeartbeatFails": 0,
+      "recoverySec": 0.76,
+      "eventsProduced": 141,
+      "eventsBacklogAtRestore": 117,
+      "draftVersions": 141,
+      "failedRequests": 91,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 3,
+      "wsMessagesReceivedAfterReconnect": 3,
+      "wsSeqGaps": 0,
+      "wsReconnects": 1,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        141,
+        141,
+        1,
+        141
+      ],
+      "apiClientEvents": [
+        141,
+        141,
+        1,
+        141
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.02,
+      "overrideApplied": true,
+      "pass": true
+    },
+    {
+      "name": "proxyb:29s",
+      "kind": "proxyb",
+      "description": "Обрыв сети клиента на 29s, как proxy, но клиент повторяет по политике исходящей очереди SPA (frontend outbox.ts: пауза 1, 2, 4, 8, 10 с) и не ускоряет повтор при новом вводе — верхняя оценка времени досылки у SPA.",
+      "outageSec": 29,
+      "firstSuccessfulRequestSec": 9.49,
+      "eventsOutboxFlushedSec": 9.51,
+      "draftSyncedSec": 9.76,
+      "wsReconnectSec": 0.13,
+      "wsMissedMessagesReceivedSec": 0.13,
+      "readyzOkSec": 0.2,
+      "readyzDownSec": 0,
+      "readyzTimeline": [
+        "-3.58 ok"
+      ],
+      "wsHeartbeatFails": 0,
+      "recoverySec": 9.76,
+      "eventsProduced": 177,
+      "eventsBacklogAtRestore": 117,
+      "draftVersions": 177,
+      "failedRequests": 12,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 3,
+      "wsMessagesReceivedAfterReconnect": 3,
+      "wsSeqGaps": 0,
+      "wsReconnects": 1,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        177,
+        177,
+        1,
+        177
+      ],
+      "apiClientEvents": [
+        177,
+        177,
+        1,
+        177
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.02,
+      "overrideApplied": true,
+      "pass": true
+    },
+    {
+      "name": "blackhole:15s",
+      "kind": "blackhole",
+      "description": "«Чёрная дыра» на 15s: соединения не рвутся, но пакеты не проходят (зависшие запросы, таймаут клиента 15 с); во время обрыва — 3 изменения оценки прошлой карточки.",
+      "outageSec": 15,
+      "firstSuccessfulRequestSec": 0.01,
+      "eventsOutboxFlushedSec": 0.15,
+      "draftSyncedSec": 0.05,
+      "wsReconnectSec": 0.01,
+      "wsMissedMessagesReceivedSec": 0.01,
+      "readyzOkSec": 0.07,
+      "readyzDownSec": 0,
+      "readyzTimeline": [
+        "-3.61 ok"
+      ],
+      "wsHeartbeatFails": 1,
+      "recoverySec": 0.15,
+      "eventsProduced": 83,
+      "eventsBacklogAtRestore": 61,
+      "draftVersions": 83,
+      "failedRequests": 0,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 3,
+      "wsMessagesReceivedAfterReconnect": 3,
+      "wsSeqGaps": 0,
+      "wsReconnects": 1,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        83,
+        83,
+        1,
+        83
+      ],
+      "apiClientEvents": [
+        83,
+        83,
+        1,
+        83
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.04,
+      "overrideApplied": true,
+      "pass": true
+    },
+    {
+      "name": "pgrestart:10s",
+      "kind": "pgrestart",
+      "description": "Остановка PostgreSQL (docker stop, штатное завершение) на 10s и запуск: go-core остаётся жив, запросы к БД падают, затем пул восстанавливается.",
+      "outageSec": 10.39,
+      "firstSuccessfulRequestSec": 0.13,
+      "eventsOutboxFlushedSec": 0.15,
+      "draftSyncedSec": 0.46,
+      "wsReconnectSec": 0,
+      "wsMissedMessagesReceivedSec": -1,
+      "readyzOkSec": 0.21,
+      "readyzDownSec": 10.52,
+      "readyzTimeline": [
+        "-3.57 ok",
+        "+0.08 fail",
+        "+10.59 ok"
+      ],
+      "wsHeartbeatFails": 0,
+      "recoverySec": 0.46,
+      "eventsProduced": 65,
+      "eventsBacklogAtRestore": 42,
+      "draftVersions": 65,
+      "failedRequests": 31,
+      "eventsResentDuplicates": 0,
+      "wsMessagesPublishedDuringOutage": 0,
+      "wsMessagesReceivedAfterReconnect": 0,
+      "wsSeqGaps": 0,
+      "wsReconnects": 0,
+      "wsLiveAfterRecovery": true,
+      "dbClientEvents": [
+        65,
+        65,
+        1,
+        65
+      ],
+      "apiClientEvents": [
+        65,
+        65,
+        1,
+        65
+      ],
+      "eventsExactlyOnce": true,
+      "draftMatchesClient": true,
+      "submitOk": true,
+      "evaluationDone": true,
+      "evaluationDoneSec": 2.04,
+      "overrideApplied": true,
+      "pass": true,
+      "notes": [
+        "WebSocket не обрывался (соединение пережило сбой)"
+      ]
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import (
 
 	"lct/gocore/internal/admin"
 	"lct/gocore/internal/aijobs"
+	"lct/gocore/internal/analytics"
 	"lct/gocore/internal/attempts"
 	"lct/gocore/internal/audit"
 	"lct/gocore/internal/auth"
@@ -28,8 +29,10 @@ import (
 	"lct/gocore/internal/evaluation"
 	"lct/gocore/internal/eventlog"
 	"lct/gocore/internal/lessons"
+	"lct/gocore/internal/materials"
 	"lct/gocore/internal/ops"
 	"lct/gocore/internal/platform/httpx"
+	"lct/gocore/internal/platform/logring"
 	"lct/gocore/internal/platform/metrics"
 	"lct/gocore/internal/platform/pg"
 	"lct/gocore/internal/realtime"
@@ -67,6 +70,8 @@ type Core struct {
 	Attempts   *attempts.Service
 	Admin      *admin.Handlers
 	Reports    *reports.Handlers
+	Analytics  *analytics.Handlers // v1.4
+	Materials  *materials.Handlers // v1.4
 
 	Router *httpx.Router
 	// Public — для браузеров (HTTPS): /api/v1 (и WS), SPA, health. Internal — открытый HTTP
@@ -114,8 +119,10 @@ func Build(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Core, er
 	c.Attempts = attempts.New(attempts.Deps{Pool: pool, Settings: c.Settings, Catalog: c.Catalog, Events: c.Events,
 		Publisher: c.Hub, Auditor: c.Audit, Evaluator: c.Evaluation, Issuer: c.Lessons, Dialogue: c.Dialogue, Log: log})
 	c.Admin = admin.New(admin.Deps{Pool: pool, Config: cfg, Settings: c.Settings, AI: c.AI, Jobs: c.AI, Ops: c.Ops,
-		WS: c.Hub, Publisher: c.Hub, Auditor: c.Audit, StartedAt: c.startedAt, Log: log})
+		WS: c.Hub, Publisher: c.Hub, Auditor: c.Audit, StartedAt: c.startedAt, Logs: logring.Default, Log: log})
 	c.Reports = reports.New(reports.Deps{Pool: pool, Catalog: c.Catalog, Auditor: c.Audit, Log: log})
+	c.Analytics = analytics.New(analytics.Deps{Pool: pool, Settings: c.Settings, Catalog: c.Catalog, Log: log})
+	c.Materials = materials.New(materials.Deps{Pool: pool, Auditor: c.Audit, Log: log})
 
 	// Результаты AI-задач — доменам, которые их ждут.
 	c.Scenarios.RegisterResults(c.AI)
@@ -142,6 +149,8 @@ func (c *Core) routes() {
 	c.Evaluation.Register(rt)
 	c.Admin.Register(rt)
 	c.Reports.Register(rt)
+	c.Analytics.Register(rt)
+	c.Materials.Register(rt)
 
 	rt.Handle("GET /ws/lessons/{lessonId}/monitor", httpx.Roles(core.RoleTeacher, core.RoleAdmin),
 		c.Hub.MonitorHandler(c.Lessons, c.Cfg.WSOrigins))
@@ -177,14 +186,19 @@ func (c *Core) routes() {
 	c.Internal = ops.SecurityHeaders(internal)
 }
 
-// Seed — справочники (всегда) и демо-данные (demo). Идемпотентно; порядок важен:
-// службы/классификатор → пользователи → сценарии → занятия.
+// Seed — справочники и системные материалы (всегда) и демо-данные (demo). Идемпотентно;
+// порядок важен: службы/классификатор → пользователи → сценарии → занятия.
 func (c *Core) Seed(ctx context.Context, demo bool) error {
 	if err := classifier.SeedReference(ctx, c.Pool); err != nil {
 		return fmt.Errorf("seed reference: %w", err)
 	}
 	if err := c.Catalog.Reload(ctx); err != nil {
 		return fmt.Errorf("catalog reload: %w", err)
+	}
+	// Справочная база поставки (памятка АРМ-112, регламенты, методика оценки) — содержимое
+	// продукта, а не демо-данные: сидится и в боевом контуре.
+	if err := materials.SeedSystem(ctx, c.Pool); err != nil {
+		return fmt.Errorf("seed materials: %w", err)
 	}
 	if !demo {
 		return nil

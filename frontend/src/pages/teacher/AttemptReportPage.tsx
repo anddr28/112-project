@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { api } from '../../shared/api';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { api, isApiError } from '../../shared/api';
 import { useAsync } from '../../shared/api/useAsync';
 import { Card, ErrorState, Field, Loading, Metric, Modal, NumberInput } from '../../components/ui';
 import { EvaluationView } from '../../features/evaluation/EvaluationView';
@@ -45,6 +45,8 @@ export function AttemptReportPage() {
   const [tab, setTab] = useState<'evaluation' | 'compare' | 'timeline'>('evaluation');
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [toScenario, setToScenario] = useState<{ busy: boolean; error?: string; existingId?: string }>({ busy: false });
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +93,21 @@ export function AttemptReportPage() {
   const threshold = lesson.data.settings.passThreshold;
   const participant = lesson.data.participants.find((p) => p.userId === a.userId);
   const dds = a.perspective === 'dds';
+  // v1.4: сценарий из карточки — только из оценённой карточки оператора 112 (режим «Карточки»).
+  const canMakeScenario = a.status === 'evaluated' && a.mode === 'cards' && !dds && Boolean(a.card);
+
+  /** «Сделать сценарием»: новый черновик source=student, эталон — карточка обучающегося. */
+  async function makeScenario() {
+    setToScenario({ busy: true });
+    try {
+      const created = await api.scenarios.fromAttempt(attemptId);
+      navigate(`/teacher/scenarios/${created.id}`);
+    } catch (e) {
+      // 409 с details.scenarioId — по этой карточке сценарий уже есть: ведём к нему, а не создаём второй.
+      const existingId = isApiError(e) && typeof e.details?.scenarioId === 'string' ? e.details.scenarioId : undefined;
+      setToScenario({ busy: false, existingId, error: e instanceof Error ? e.message : 'Не удалось создать сценарий' });
+    }
+  }
 
   return (
     <>
@@ -101,10 +118,21 @@ export function AttemptReportPage() {
           </div>
           <h1>Разбор попытки</h1>
           <div className="page-head__sub">
-            {participant?.name ?? a.userId} · {scenario.data ? scenarioLabel(scenario.data) : '—'} · карточка № {a.incidentNo}
+            <Link to={`/teacher/students/${encodeURIComponent(a.userId)}`} title="Прогресс обучающегося">{participant?.name ?? 'Обучающийся'}</Link> · {scenario.data ? scenarioLabel(scenario.data) : '—'} · карточка № {a.incidentNo}
           </div>
         </div>
         <div className="page-head__actions">
+          {canMakeScenario && (
+            <button
+              type="button"
+              className="btn"
+              disabled={toScenario.busy}
+              title="Новый сценарий-черновик: эталон — эта карточка, легенда и категория — из исходного сценария"
+              onClick={() => void makeScenario()}
+            >
+              {toScenario.busy ? 'Создание…' : 'Сделать сценарием'}
+            </button>
+          )}
           <button type="button" className="btn" onClick={() => setFeedbackOpen(true)}>Оставить комментарий</button>
           <button
             type="button"
@@ -117,6 +145,13 @@ export function AttemptReportPage() {
           </button>
         </div>
       </div>
+
+      {toScenario.error && (
+        <p className="field__error" role="alert" style={{ marginBottom: 12 }}>
+          {toScenario.error}
+          {toScenario.existingId && <> — <Link to={`/teacher/scenarios/${toScenario.existingId}`}>открыть созданный сценарий</Link></>}
+        </p>
+      )}
 
       <div className="grid grid--4" style={{ marginBottom: 16 }}>
         <Metric label="Дата и время" value={a.submittedAt ? formatDateTime(a.submittedAt).slice(11) : '—'} note={a.submittedAt ? formatDateTime(a.submittedAt).slice(0, 10) : ''} />

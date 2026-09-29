@@ -53,3 +53,8 @@ export function formatDate(iso: string): string {
   });
 }
 
+
+/** Момент старше заданного срока от «сейчас» (например, копия старше суток). */
+export function isOlderThan(iso: string, ms: number): boolean {
+  return Date.now() - Date.parse(iso) > ms;
+}

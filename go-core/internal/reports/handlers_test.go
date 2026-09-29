@@ -138,7 +138,7 @@ func TestReportRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	r := httpx.NewRouter(mux, "/api/v1", stubAuth{}, discardLog(), nil)
 	h.Register(r)
-	if got := r.Routes(); len(got) != 1 || got[0] != "GET /lessons/{lessonId}/report" {
+	if got := r.Routes(); len(got) != 2 || got[0] != "GET /lessons/{lessonId}/report" || got[1] != "GET /users/{userId}/certificate" {
 		t.Fatalf("routes = %v", got)
 	}
 	if cap(h.sem) != 2 || h.log == nil || h.now == nil {

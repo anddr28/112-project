@@ -118,6 +118,7 @@ type createBody struct {
 	Weights         map[string]*float64 `json:"weights"`
 	Voice           *voiceBody          `json:"voice"`
 	CardsPerStudent *int                `json:"cardsPerStudent"`
+	CardSource      *string             `json:"cardSource"`
 }
 
 type voiceBody struct {
@@ -187,7 +188,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) error {
 		After: lessonAudit{
 			Title: d.Title, Mode: d.Mode, Perspective: d.Settings.Perspective, Status: core.LessonDraft, TimeLimitSec: d.TimeLimitSec,
 			Scenarios: len(d.ScenarioIDs), Participants: len(d.ParticipantIDs),
-			Voice: d.Settings.Voice.Enabled, PassThreshold: d.Settings.PassThreshold,
+			Voice: d.Settings.Voice.Enabled, PassThreshold: d.Settings.PassThreshold, CardSource: d.Settings.CardSource,
 		},
 	})
 	httpx.WriteJSON(w, http.StatusCreated, out)
@@ -199,6 +200,7 @@ type lessonAudit struct {
 	Title           string  `json:"title,omitempty"`
 	Mode            string  `json:"mode,omitempty"`
 	Perspective     string  `json:"perspective,omitempty"`
+	CardSource      string  `json:"cardSource,omitempty"`
 	Status          string  `json:"status,omitempty"`
 	TimeLimitSec    int     `json:"timeLimitSec,omitempty"`
 	Scenarios       int     `json:"scenarios,omitempty"`
@@ -250,6 +252,15 @@ func parseCreate(b *createBody, snap *settings.Snapshot) (lessonDraft, map[strin
 	// диспетчер службы её принимает и реагирует. Заполнять карточку со звонка ему не нужно.
 	if ls.IsDDS() && d.Mode == core.ModeCards {
 		fields["mode"] = "В ракурсе «Диспетчер ДДС» — только режим «Действия с карточками» (card_actions)"
+	}
+	// Источник карточек пула (v1.4): нет — смешанный, как было до него.
+	switch v := deref(b.CardSource); {
+	case v == "":
+		ls.CardSource = model.CardSourceMixed
+	case model.ValidCardSource(v):
+		ls.CardSource = v
+	default:
+		fields["cardSource"] = "Допустимо: generated, student, mixed"
 	}
 
 	if b.Difficulty != nil {
@@ -425,11 +436,12 @@ type scenarioCheck struct {
 	HasBrief   bool
 	CategoryID uuid.UUID
 	Services   []string // службы списка оповещения эталона (известные справочнику, основная первой)
+	Source     string   // generated | manual | ticket | student — для проверки cardSource
 }
 
 // Размеры массивов считаются в SQL: большой call_script/эталон не едет в Go целиком.
 var sqlScenarioChecksCols = `
-SELECT s.id, s.title, s.status, s.mode, s.category_id,
+SELECT s.id, s.title, s.status, s.mode, s.category_id, s.source,
        (s.archived_at IS NOT NULL OR s.status = 'archived'),
        e.id IS NOT NULL,
        jsonb_typeof(s.call_script->'dialogue') = 'object',
@@ -479,7 +491,7 @@ func scanScenarioCheck(row pgx.Row, c *scenarioCheck) error {
 		hasBrief *bool
 		codes    string
 	)
-	if err := row.Scan(&c.ID, &c.Title, &c.Status, &c.Mode, &c.CategoryID, &c.Archived, &c.HasEtalon,
+	if err := row.Scan(&c.ID, &c.Title, &c.Status, &c.Mode, &c.CategoryID, &c.Source, &c.Archived, &c.HasEtalon,
 		&hasBrief, &c.Facts, &c.Checklist, &codes); err != nil {
 		return err
 	}
@@ -576,6 +588,23 @@ func checkRefs(d *lessonDraft, scen map[uuid.UUID]scenarioCheck, users map[uuid.
 	if len(bad) > 0 {
 		return httpx.Validation("Сценарии не подходят для режима занятия: "+strings.Join(badTitles, ", "),
 			map[string]string{"scenarioIds": "Режим сценария не совпадает с режимом занятия"}).
+			WithDetails(map[string]any{"scenarioIds": bad})
+	}
+
+	// Источник карточек (v1.4, ТЗ «действия с карточками»): пул «только карточки обучающихся»
+	// не должен молча выдавать сгенерированные сценарии, и наоборот.
+	bad, badTitles = bad[:0], badTitles[:0]
+	for _, id := range d.ScenarioIDs {
+		if c := scen[id]; !model.CardSourceAllows(d.Settings.CardSource, c.Source) {
+			bad, badTitles = append(bad, id.String()), append(badTitles, "«"+c.Title+"»")
+		}
+	}
+	if len(bad) > 0 {
+		want := "сгенерированные системой"
+		if d.Settings.CardSource == model.CardSourceStudent {
+			want = "сформированные обучающимися"
+		}
+		return httpx.Unprocessable("Источник карточек занятия — " + want + "; не подходят: " + strings.Join(badTitles, ", ")).
 			WithDetails(map[string]any{"scenarioIds": bad})
 	}
 
@@ -691,8 +720,8 @@ type lessonInsert struct {
 const sqlInsertLesson = `
 WITH l AS (
   INSERT INTO lessons (id, kind, title, teacher_id, created_by, mode, difficulty, time_limit_sec,
-                       settings, status, started_at)
-  VALUES ($1, 'class', $2, $3, $3, $4, $5, $6, $7, $8, $9)
+                       settings, status, started_at, scenario_source)
+  VALUES ($1, 'class', $2, $3, $3, $4, $5, $6, $7, $8, $9, $12)
   RETURNING id
 ), sc AS (
   INSERT INTO lesson_scenarios (lesson_id, scenario_id, sort_order)
@@ -706,6 +735,15 @@ WITH l AS (
 )
 SELECT id FROM l`
 
+// cardSourceColumn — lessons.scenario_source (колонка из 00001, ТЗ режим 2) повторяет
+// settings.card_source: источник истины для API — настройки, колонка — для отчётов/SQL.
+func cardSourceColumn(ls model.LessonSettings) string {
+	if model.ValidCardSource(ls.CardSource) {
+		return ls.CardSource
+	}
+	return model.CardSourceMixed
+}
+
 func insertLesson(ctx context.Context, q pg.Querier, in *lessonInsert) error {
 	raw, err := json.Marshal(in.Settings)
 	if err != nil {
@@ -713,7 +751,7 @@ func insertLesson(ctx context.Context, q pg.Querier, in *lessonInsert) error {
 	}
 	var id uuid.UUID
 	if err := q.QueryRow(ctx, sqlInsertLesson, in.ID, in.Title, in.TeacherID, in.Mode, in.Difficulty,
-		in.TimeLimitSec, raw, in.Status, in.StartedAt, in.ScenarioIDs, in.ParticipantIDs).Scan(&id); err != nil {
+		in.TimeLimitSec, raw, in.Status, in.StartedAt, in.ScenarioIDs, in.ParticipantIDs, cardSourceColumn(in.Settings)).Scan(&id); err != nil {
 		return fmt.Errorf("lessons: insert: %w", err)
 	}
 	return nil

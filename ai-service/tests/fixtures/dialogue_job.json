@@ -1,0 +1,159 @@
+{
+  "schema_version": "1",
+  "request_id": "018f6b2a-7c1e-7f00-a000-000000000011",
+  "attempt_id": "018f6b2a-7c1e-7f00-b000-000000000002",
+  "priority": 3,
+  "profile": "eval_dialogue",
+  "scenario_context": {
+    "category": {
+      "code": "2.3.1",
+      "name": "Пожар в жилом доме"
+    }
+  },
+  "call_script": {
+    "caller": {
+      "name": "Мария",
+      "role": "соседка",
+      "emotional_state": "паника"
+    },
+    "address": {
+      "raw": "Ленина 14, подъезд 3, 5 этаж"
+    },
+    "key_facts": [
+      "дым из квартиры на 5 этаже",
+      "подъезд 3"
+    ],
+    "dialogue": {
+      "persona": "женщина ~60 лет, соседка, напугана",
+      "facts": [
+        {
+          "id": "smoke",
+          "text": "дым из квартиры на 5 этаже",
+          "reveal": "volunteer"
+        },
+        {
+          "id": "entrance",
+          "text": "подъезд 3",
+          "reveal": "on_request",
+          "hints": [
+            "подъезд"
+          ]
+        },
+        {
+          "id": "person_inside",
+          "text": "в квартире может быть пожилой сосед",
+          "reveal": "on_request",
+          "hints": [
+            "люди",
+            "кто-то внутри",
+            "в квартире"
+          ]
+        }
+      ]
+    },
+    "turns": [
+      {
+        "speaker": "caller",
+        "text": "Алло! У нас дым из квартиры идёт, Ленина 14!"
+      }
+    ]
+  },
+  "etalon": {
+    "expected_dialogue": {
+      "checklist": [
+        {
+          "id": "ask_address",
+          "text": "Уточнил адрес: дом, подъезд, этаж",
+          "kind": "question",
+          "required": true,
+          "hints": [
+            "подъезд",
+            "этаж",
+            "какой дом"
+          ]
+        },
+        {
+          "id": "ask_people",
+          "text": "Спросил, есть ли люди в квартире",
+          "kind": "question",
+          "required": true,
+          "hints": [
+            "люди",
+            "кто-нибудь внутри"
+          ]
+        },
+        {
+          "id": "ask_phone",
+          "text": "Уточнил контактный телефон",
+          "kind": "question",
+          "required": false
+        },
+        {
+          "id": "say_dispatched",
+          "text": "Сообщил, что помощь направлена",
+          "kind": "phrase",
+          "required": true,
+          "hints": [
+            "направлена",
+            "выехали",
+            "едут"
+          ]
+        },
+        {
+          "id": "calm",
+          "text": "Говорил спокойно, не перебивал",
+          "kind": "behavior",
+          "required": true
+        }
+      ],
+      "forbidden": [
+        "перезвоните позже",
+        "ждите"
+      ]
+    }
+  },
+  "transcript": [
+    {
+      "turn_no": 1,
+      "speaker": "caller",
+      "text": "Алло! У нас дым из квартиры идёт, Ленина 14!",
+      "at_ms": 0,
+      "source": "script"
+    },
+    {
+      "turn_no": 2,
+      "speaker": "operator",
+      "text": "Служба 112, слушаю. Какой подъезд и этаж?",
+      "at_ms": 4100,
+      "confidence": 0.91,
+      "audio_duration_ms": 2900,
+      "source": "stt"
+    },
+    {
+      "turn_no": 3,
+      "speaker": "caller",
+      "text": "Третий подъезд, пятый этаж, ой, дым такой!",
+      "at_ms": 9800,
+      "source": "llm",
+      "revealed_fact_ids": [
+        "entrance"
+      ]
+    },
+    {
+      "turn_no": 4,
+      "speaker": "operator",
+      "text": "Понял, помощь направлена, оставайтесь на связи.",
+      "at_ms": 15200,
+      "confidence": 0.88,
+      "audio_duration_ms": 3100,
+      "source": "stt"
+    }
+  ],
+  "timing": {
+    "call_accepted_at_ms": 0,
+    "submitted_at_ms": 41000
+  },
+  "options": {
+    "lang": "ru"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "request_id": "018f6b2a-7c1e-7f00-a000-000000000051",
+  "priority": 5,
+  "text": "Алло! У нас дым из квартиры, Ленина 14!",
+  "text_hash": "a3f1c0ffee00112233445566778899aabbccddeeff00112233445566778899aa",
+  "voice": "baya",
+  "rate": 1.0
+}

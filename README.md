@@ -1,3 +1,22 @@
+# Тренажёр оператора ДДС (эмуляция АРМ-112) · ЛЦТ 2026 · кейс 09
+
+## Быстрый старт
+
+```bash
+cp .env.example .env
+docker compose --profile fake up -d --build        # стенд с имитатором ИИ
+# полный контур с ИИ: docker compose -f docker-compose.yml -f ai-service/compose.ai.yaml up -d --build
+```
+
+Откройте https://localhost:8443. Учётные записи: `admin/admin`, `teacher/teacher`, `student/student`.
+
+- Документация: [docs/submission/documentation.pdf](docs/submission/documentation.pdf) (.docx, .md рядом)
+- Архитектура: [docs/architecture-v1.png](docs/architecture-v1.png)
+- Нагрузка и отказоустойчивость: [docs/testing/load-and-resilience.md](docs/testing/load-and-resilience.md)
+- Компоненты: [go-core](go-core/README.md) · [ai-service](ai-service/README.md) · [frontend](frontend/README.md)
+
+---
+
 # Кейс 09 · Учебный симулятор подготовки диспетчеров экстренных служб (система-112)
 
 > Хакатон «Лидеры цифровой трансформации» (ЛЦТ) 2026 — конкурс Мэра Москвы для лучших ИТ-специалистов мира.

@@ -3,8 +3,8 @@
 Ядро тренажёра ДДС на Go: модульный монолит, PostgreSQL (pgx v5), публичный API для SPA
 (`contracts/openapi/frontend.v1.yaml`, camelCase, `/api/v1`), внутренний контракт с
 ai-service (`ai-service.v1.yaml` клиент, `go-internal.v1.yaml` callback, snake_case).
-Источник истины — контракты и `docs/*.md`; схема БД — `db/migrations/00001_init.sql` +
-`00002_go_core_voice.sql`; поведение, которого ждёт фронт, — моки фронта
+Источник истины — контракты и `docs/*.md`; схема БД — `db/migrations/00001_init.sql` … `00005_release_ready.sql`
+(решения — `docs/db-design.md`); поведение, которого ждёт фронт, — моки фронта
 (`frontend/src/shared/mocks/*`, `frontend/src/shared/api/httpApi.ts`).
 
 > Обязательное чтение до кода: `docs/contracts.md`, `docs/voice-mode.md`, `docs/db-design.md`,
@@ -60,16 +60,21 @@ internal/eventlog     group-commit писатель attempt_events + серве�
 internal/audit        батч-писатель аудита (core.Auditor), партиции audit_log, выборка для админки  (W1 ops)
 internal/ops          планировщик, бэкапы pg_dump, чистки, TLS (CA контура), SPA-статика, health    (W1 ops)
 internal/platform/metrics  лёгкие метрики Prometheus-формата                                         (W1 ops)
+internal/platform/logring  кольцо системного журнала: тройник slog → stdout + буфер 5000 (GET /admin/logs) (v1.4)
 internal/auth         сессии, пароли, rate limit, lockout, login/logout/me/demo, демо-учётки         (W1 auth)
 internal/users        /users*, /users/{id}/progress; users.Get — единственная сборка public.User       (W1 auth)
 
-internal/scenarios    сценарии, версии, генерация, approve+TTS, tts-preview, результаты generate/tts, демо-сценарии (W2)
-internal/lessons      занятия, выдача попыток (core.AttemptIssuer), мониторинг (LessonMonitor, AttemptPresence), демо-занятия (W2)
+internal/scenarios    сценарии, версии, генерация, approve+TTS, tts-preview, результаты generate/tts, демо-сценарии (W2);
+                      пакеты /scenarios/export|import, /attempts/{id}/to-scenario                  (v1.4)
+internal/lessons      занятия, выдача попыток (core.AttemptIssuer), мониторинг (LessonMonitor, AttemptPresence), демо-занятия (W2);
+                      источник карточек пула LessonSettings.cardSource                             (v1.4)
 internal/attempts     попытка: get/accept-call/call-script/draft/events/services/replay/submit       (W2)
 internal/dialogue     разговор: ход, состояние, завершение, /media/tts, core.DialogueHooks          (W2)
 internal/evaluation   core.Evaluator, применение AI-результатов, финализация, XP, get/override/feedback (W2)
-internal/admin        /admin/health, /admin/settings*, /admin/audit, /admin/backups                  (W2)
-internal/reports      /lessons/{id}/report CSV/XLSX/PDF                                              (W2)
+internal/admin        /admin/health, /admin/settings*, /admin/audit, /admin/backups, /admin/logs     (W2, v1.4)
+internal/reports      /lessons/{id}/report CSV/XLSX/PDF, /users/{id}/certificate PDF                 (W2, v1.4)
+internal/analytics    GET /analytics/overview: агрегаты по оценённым попыткам + инсайты (правила)    (v1.4)
+internal/materials    справочная база /materials*: Markdown + файл bytea ≤ 20 МБ, системные data/*.md (v1.4)
 internal/app          сборка, маршруты, фоновые воркеры, graceful shutdown                          (wave 3)
 ```
 
@@ -99,7 +104,9 @@ internal/app          сборка, маршруты, фоновые ворке�
 - Аудит (`core.Auditor.Log`) — на каждое значимое действие: `user.login`, `user.login_failed`, `user.logout`,
   `user.create`, `user.update`, `user.block`, `user.unblock`, `scenario.create|update|version|generate|approve|reject`,
   `etalon.version`, `lesson.create|start|finish`, `attempt.accept|submit`, `evaluation.override`,
-  `feedback.add`, `setting.update`, `backup.run`, `classifier.import`. Before/After — компактные структуры,
+  `feedback.add`, `setting.update`, `backup.run`, `classifier.import`, `report.export`; v1.4:
+  `material.create|delete`, `scenario.import|export`, `certificate.export`, `scenario.create` (с
+  `source: student` — сценарий из карточки обучающегося). Before/After — компактные структуры,
   без паролей/хэшей/токенов.
 - Комментарии — по-русски, объясняют «почему», как в остальном репозитории.
 
@@ -239,6 +246,39 @@ go-core строит contract `IncidentCard` (`DraftToCard`); сгенериро
   чек-лист, `status=generated`, `generation_meta`.
 - `inUse/lessonsCount` — число занятий, где сценарий в `lesson_scenarios`; `ttsReady` — у всех реплик
   заявителя есть строка в `tts_cache`.
+
+### v1.4 — закрытие ТЗ к сдаче
+- **Аналитика** (`analytics`): только `attempts.status = evaluated`; преподаватель — свои занятия
+  (`lessons.teacher_id`), админ — все. Фильтры `lessonId|studentId|categoryId(uuid|код)|days`; выбрано
+  занятие и `days` не задан — всё занятие (без окна), иначе окно `days` (по умолчанию 30). Девять
+  разделов — девять агрегатных запросов с общим CTE в одном `pgx.Batch`; jsonb разворачиваются
+  (`jsonb_array_elements`) только в своих разделах. Слой «оценён» — есть балл и `layers.<слой>` не
+  `skipped|failed`. Тепловая карта: строки — категории (≤ 20, по числу попыток), столбцы — поля
+  (≤ 15, по числу ошибок). Инсайты — детерминированные правила (`insights.go`): порог выборки
+  (≥ 3 оценённых), доли и пороги — константы; `id` стабилен; критичные сверху, не больше 12.
+- **Материалы** (`materials`): список без `content` (≤ 500 строк, системные сверху), `GET /{id}` — с
+  текстом; загрузка multipart потоком (не больше 2 одновременно), тип — расширение + проверка
+  содержимого (OOXML — по части `word/`/`xl/` в zip), MIME — канонический; > 20 МБ — 413. Файл
+  отдаётся `http.ServeContent` поверх `substring(file_data …)` кусками по 1 МБ (Range, ETag).
+  Удаление — автор или админ, системные — 409; удаление физическое (не результат обучения).
+  Системные материалы — сид при каждом старте (`slug`, обновление изменившихся текстов).
+- **Журнал** (`logring`): записи info+ копируются в кольцо независимо от уровня stdout; ошибки и
+  `Stringer` фиксируются строкой при записи, JSON-вид — только при чтении.
+- **Сертификат** (`reports`): доступ как у прогресса (сам / преподаватель его групп или занятий /
+  админ); нет оценённых попыток — 409; данные — витрины прогресса одним batch; аудит
+  `certificate.export`, строка `reports(type=student)`.
+- **Пакеты сценариев**: экспорт — переносимое содержание (категория и типы — **коды**
+  классификатора, без хэшей озвучки); импорт — каждый элемент независимо (один `INSERT … WITH`),
+  status `draft`, эталон v1, отказ элемента — `rejected[{index, message}]`; `import_batches` + аудит.
+- **Сценарий из карточки**: только преподаватель занятия, попытка `evaluated`, режим `cards`, не ДДС;
+  `source=student`, `mode=card_actions`, легенда/категория — исходного сценария, критерии оценки —
+  версии эталона попытки; повтор — 409 `details.scenarioId` (уникальный `source_attempt_id`).
+- **cardSource**: `lessons.settings.card_source` (+ колонка `scenario_source`), по умолчанию `mixed`;
+  `generated` — в пуле нет `source=student`, `student` — только они; иначе 422 `details.scenarioIds`.
+- **ТЗ: админ не меняет оценки и сценарии во время активного занятия**: override админом при
+  `lessons.status = running` — 409 (преподаватель занятия может); правка/отклонение сценария,
+  стоящего в любом занятии, — 409 для всех ролей (только новой версией), поэтому сценарии идущего
+  занятия неизменны и для админа.
 
 ### WebSocket
 - `/ws/lessons/{id}/monitor?since=seq` (преподаватель-владелец/админ): первое — `snapshot`, далее

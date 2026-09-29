@@ -994,6 +994,7 @@
 .arm-autosave__dot--saving { background: var(--arm-orange); }
 .arm-autosave__dot--saved { background: #1f6b45; }
 .arm-autosave__dot--error { background: var(--arm-red); }
+.arm-autosave__dot--offline { background: var(--arm-orange); box-shadow: 0 0 0 2px rgb(232 100 42 / 30%); }
 
 /* ───────────────────────────────────────── рабочее место диспетчера ДДС (v1.3) */
 

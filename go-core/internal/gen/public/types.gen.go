@@ -90,6 +90,54 @@ func (e AiJobType) Valid() bool {
 	}
 }
 
+// Defines values for AnalyticsOverviewLayersLayer.
+const (
+	Dialogue AnalyticsOverviewLayersLayer = "dialogue"
+	Fields   AnalyticsOverviewLayersLayer = "fields"
+	Grammar  AnalyticsOverviewLayersLayer = "grammar"
+	Semantic AnalyticsOverviewLayersLayer = "semantic"
+	Timing   AnalyticsOverviewLayersLayer = "timing"
+)
+
+// Valid indicates whether the value is a known member of the AnalyticsOverviewLayersLayer enum.
+func (e AnalyticsOverviewLayersLayer) Valid() bool {
+	switch e {
+	case Dialogue:
+		return true
+	case Fields:
+		return true
+	case Grammar:
+		return true
+	case Semantic:
+		return true
+	case Timing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AnalyticsOverviewTopFieldErrorsKind.
+const (
+	AnalyticsOverviewTopFieldErrorsKindExtra   AnalyticsOverviewTopFieldErrorsKind = "extra"
+	AnalyticsOverviewTopFieldErrorsKindMissing AnalyticsOverviewTopFieldErrorsKind = "missing"
+	AnalyticsOverviewTopFieldErrorsKindWrong   AnalyticsOverviewTopFieldErrorsKind = "wrong"
+)
+
+// Valid indicates whether the value is a known member of the AnalyticsOverviewTopFieldErrorsKind enum.
+func (e AnalyticsOverviewTopFieldErrorsKind) Valid() bool {
+	switch e {
+	case AnalyticsOverviewTopFieldErrorsKindExtra:
+		return true
+	case AnalyticsOverviewTopFieldErrorsKindMissing:
+		return true
+	case AnalyticsOverviewTopFieldErrorsKindWrong:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApplicantStatus.
 const (
 	Знакомый     ApplicantStatus = "знакомый"
@@ -342,6 +390,27 @@ func (e CallTurnViewSpeaker) Valid() bool {
 	case CallTurnViewSpeakerCaller:
 		return true
 	case CallTurnViewSpeakerOperatorHint:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CardSource.
+const (
+	CardSourceGenerated CardSource = "generated"
+	CardSourceMixed     CardSource = "mixed"
+	CardSourceStudent   CardSource = "student"
+)
+
+// Valid indicates whether the value is a known member of the CardSource enum.
+func (e CardSource) Valid() bool {
+	switch e {
+	case CardSourceGenerated:
+		return true
+	case CardSourceMixed:
+		return true
+	case CardSourceStudent:
 		return true
 	default:
 		return false
@@ -668,19 +737,40 @@ func (e GenerateScenarioInputMode) Valid() bool {
 
 // Defines values for GrammarRemarkSeverity.
 const (
-	Error   GrammarRemarkSeverity = "error"
-	Style   GrammarRemarkSeverity = "style"
-	Warning GrammarRemarkSeverity = "warning"
+	GrammarRemarkSeverityError   GrammarRemarkSeverity = "error"
+	GrammarRemarkSeverityStyle   GrammarRemarkSeverity = "style"
+	GrammarRemarkSeverityWarning GrammarRemarkSeverity = "warning"
 )
 
 // Valid indicates whether the value is a known member of the GrammarRemarkSeverity enum.
 func (e GrammarRemarkSeverity) Valid() bool {
 	switch e {
-	case Error:
+	case GrammarRemarkSeverityError:
 		return true
-	case Style:
+	case GrammarRemarkSeverityStyle:
 		return true
-	case Warning:
+	case GrammarRemarkSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InsightSeverity.
+const (
+	InsightSeverityCritical InsightSeverity = "critical"
+	InsightSeverityInfo     InsightSeverity = "info"
+	InsightSeverityWarning  InsightSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the InsightSeverity enum.
+func (e InsightSeverity) Valid() bool {
+	switch e {
+	case InsightSeverityCritical:
+		return true
+	case InsightSeverityInfo:
+		return true
+	case InsightSeverityWarning:
 		return true
 	default:
 		return false
@@ -744,6 +834,30 @@ func (e LessonStatus) Valid() bool {
 	case LessonStatusRunning:
 		return true
 	case LessonStatusScheduled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LogEntryLevel.
+const (
+	LogEntryLevelDebug LogEntryLevel = "debug"
+	LogEntryLevelError LogEntryLevel = "error"
+	LogEntryLevelInfo  LogEntryLevel = "info"
+	LogEntryLevelWarn  LogEntryLevel = "warn"
+)
+
+// Valid indicates whether the value is a known member of the LogEntryLevel enum.
+func (e LogEntryLevel) Valid() bool {
+	switch e {
+	case LogEntryLevelDebug:
+		return true
+	case LogEntryLevelError:
+		return true
+	case LogEntryLevelInfo:
+		return true
+	case LogEntryLevelWarn:
 		return true
 	default:
 		return false
@@ -933,6 +1047,42 @@ func (e ScenarioMode) Valid() bool {
 	case ScenarioModeCardActions:
 		return true
 	case ScenarioModeCards:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ScenarioBundleFormat.
+const (
+	Lct112ScenariosV1 ScenarioBundleFormat = "lct112.scenarios.v1"
+)
+
+// Valid indicates whether the value is a known member of the ScenarioBundleFormat enum.
+func (e ScenarioBundleFormat) Valid() bool {
+	switch e {
+	case Lct112ScenariosV1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ScenarioBundleItemMode.
+const (
+	ScenarioBundleItemModeBoth        ScenarioBundleItemMode = "both"
+	ScenarioBundleItemModeCardActions ScenarioBundleItemMode = "card_actions"
+	ScenarioBundleItemModeCards       ScenarioBundleItemMode = "cards"
+)
+
+// Valid indicates whether the value is a known member of the ScenarioBundleItemMode enum.
+func (e ScenarioBundleItemMode) Valid() bool {
+	switch e {
+	case ScenarioBundleItemModeBoth:
+		return true
+	case ScenarioBundleItemModeCardActions:
+		return true
+	case ScenarioBundleItemModeCards:
 		return true
 	default:
 		return false
@@ -1206,6 +1356,30 @@ func (e VoiceSettingsInput) Valid() bool {
 	}
 }
 
+// Defines values for ListLogsParamsLevel.
+const (
+	ListLogsParamsLevelDebug ListLogsParamsLevel = "debug"
+	ListLogsParamsLevelError ListLogsParamsLevel = "error"
+	ListLogsParamsLevelInfo  ListLogsParamsLevel = "info"
+	ListLogsParamsLevelWarn  ListLogsParamsLevel = "warn"
+)
+
+// Valid indicates whether the value is a known member of the ListLogsParamsLevel enum.
+func (e ListLogsParamsLevel) Valid() bool {
+	switch e {
+	case ListLogsParamsLevelDebug:
+		return true
+	case ListLogsParamsLevelError:
+		return true
+	case ListLogsParamsLevelInfo:
+		return true
+	case ListLogsParamsLevelWarn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LessonReportParamsFormat.
 const (
 	Csv  LessonReportParamsFormat = "csv"
@@ -1324,6 +1498,103 @@ type AllowedTransition struct {
 	SquadNumberRequired bool           `json:"squadNumberRequired"`
 	Status              ReactionStatus `json:"status"`
 }
+
+// AnalyticsOverview defines model for AnalyticsOverview.
+type AnalyticsOverview struct {
+	Categories []struct {
+		Attempts     int     `json:"attempts"`
+		AvgScore     float32 `json:"avgScore"`
+		AvgTimeMs    *int    `json:"avgTimeMs,omitempty"`
+		CategoryId   string  `json:"categoryId"`
+		CategoryName string  `json:"categoryName"`
+		PassRatePct  float32 `json:"passRatePct"`
+	} `json:"categories"`
+	GeneratedAt time.Time `json:"generatedAt"`
+
+	// Heatmap тепловая карта ошибок: строки — категории происшествий, столбцы — поля карточки; cells[i][j] — число ошибок
+	Heatmap struct {
+		Cells [][]int `json:"cells"`
+		Cols  []struct {
+			Id    string `json:"id"`
+			Label string `json:"label"`
+		} `json:"cols"`
+		Rows []struct {
+			Attempts int    `json:"attempts"`
+			Id       string `json:"id"`
+			Label    string `json:"label"`
+		} `json:"rows"`
+	} `json:"heatmap"`
+	Insights []Insight `json:"insights"`
+
+	// Layers средний балл по слоям оценки (только у попыток, где слой был оценён)
+	Layers []struct {
+		Attempts int                          `json:"attempts"`
+		AvgScore float32                      `json:"avgScore"`
+		Layer    AnalyticsOverviewLayersLayer `json:"layer"`
+	} `json:"layers"`
+	Scope struct {
+		CategoryId *string             `json:"categoryId,omitempty"`
+		Days       int                 `json:"days"`
+		LessonId   *openapi_types.UUID `json:"lessonId,omitempty"`
+		StudentId  *openapi_types.UUID `json:"studentId,omitempty"`
+	} `json:"scope"`
+	Students []struct {
+		Attempts     int                `json:"attempts"`
+		AvgScore     float32            `json:"avgScore"`
+		AvgTimeMs    *int               `json:"avgTimeMs,omitempty"`
+		Name         string             `json:"name"`
+		PassRatePct  float32            `json:"passRatePct"`
+		UserId       openapi_types.UUID `json:"userId"`
+		WeakestLayer *string            `json:"weakestLayer,omitempty"`
+	} `json:"students"`
+	Summary struct {
+		Attempts      int     `json:"attempts"`
+		AvgReactionMs *int    `json:"avgReactionMs,omitempty"`
+		AvgScore      float32 `json:"avgScore"`
+		AvgTimeMs     int     `json:"avgTimeMs"`
+		NeedsReview   int     `json:"needsReview"`
+		PassRatePct   float32 `json:"passRatePct"`
+		Students      int     `json:"students"`
+		WithinNormPct float32 `json:"withinNormPct"`
+	} `json:"summary"`
+	TopFieldErrors []struct {
+		Count int                                 `json:"count"`
+		Field string                              `json:"field"`
+		Kind  AnalyticsOverviewTopFieldErrorsKind `json:"kind"`
+		Label string                              `json:"label"`
+
+		// SharePct доля попыток с этой ошибкой
+		SharePct float32 `json:"sharePct"`
+	} `json:"topFieldErrors"`
+	TopGrammarRules []struct {
+		Count   int     `json:"count"`
+		Example *string `json:"example,omitempty"`
+		Message string  `json:"message"`
+		Rule    string  `json:"rule"`
+	} `json:"topGrammarRules"`
+
+	// TopMissingFacts факты, которые чаще всего не отражены (слой semantic)
+	TopMissingFacts []struct {
+		Count    int     `json:"count"`
+		Fact     string  `json:"fact"`
+		SharePct float32 `json:"sharePct"`
+	} `json:"topMissingFacts"`
+
+	// Trend по дням (часовой пояс сервера — UTC), только дни с попытками
+	Trend []struct {
+		Attempts    int                `json:"attempts"`
+		AvgScore    float32            `json:"avgScore"`
+		AvgTimeMs   *int               `json:"avgTimeMs,omitempty"`
+		Date        openapi_types.Date `json:"date"`
+		PassRatePct float32            `json:"passRatePct"`
+	} `json:"trend"`
+}
+
+// AnalyticsOverviewLayersLayer defines model for AnalyticsOverview.Layers.Layer.
+type AnalyticsOverviewLayersLayer string
+
+// AnalyticsOverviewTopFieldErrorsKind defines model for AnalyticsOverview.TopFieldErrors.Kind.
+type AnalyticsOverviewTopFieldErrorsKind string
 
 // ApiError defines model for ApiError.
 type ApiError struct {
@@ -1530,6 +1801,9 @@ type CallTurnView struct {
 // CallTurnViewSpeaker defines model for CallTurnView.Speaker.
 type CallTurnViewSpeaker string
 
+// CardSource v1.4 (ТЗ, «действия с карточками»): из каких карточек собран пул занятия — сгенерированных системой (source ≠ student), сформированных обучающимися (source = student) или смешанный. Сервер проверяет пул при создании занятия (422 details.scenarioIds, если сценарий не подходит под выбранный источник). Нет — mixed (как раньше).
+type CardSource string
+
 // ChangeStatusInput defines model for ChangeStatusInput.
 type ChangeStatusInput struct {
 	Comment     *string        `json:"comment,omitempty"`
@@ -1547,7 +1821,10 @@ type ClassifierLabels struct {
 
 // CreateLessonInput defines model for CreateLessonInput.
 type CreateLessonInput struct {
-	AllowReplay    bool                 `json:"allowReplay"`
+	AllowReplay bool `json:"allowReplay"`
+
+	// CardSource v1.4 (ТЗ, «действия с карточками»): из каких карточек собран пул занятия — сгенерированных системой (source ≠ student), сформированных обучающимися (source = student) или смешанный. Сервер проверяет пул при создании занятия (422 details.scenarioIds, если сценарий не подходит под выбранный источник). Нет — mixed (как раньше).
+	CardSource     *CardSource          `json:"cardSource,omitempty"`
 	Difficulty     *Difficulty          `json:"difficulty,omitempty"`
 	Mode           LessonMode           `json:"mode"`
 	ParticipantIds []openapi_types.UUID `json:"participantIds"`
@@ -1929,6 +2206,27 @@ type IncidentType struct {
 	Synonyms     []string `json:"synonyms"`
 }
 
+// Insight Вывод по типичным ошибкам группы с рекомендацией (v1.4)
+type Insight struct {
+	AffectedStudents *[]string `json:"affectedStudents,omitempty"`
+
+	// Body что происходит + что сделать преподавателю
+	Body     string    `json:"body"`
+	Evidence *[]string `json:"evidence,omitempty"`
+	Id       string    `json:"id"`
+
+	// Kind weak_field | missing_fact | grammar_pattern | slow_timing | weak_category | weak_layer | dialogue_pattern | student_at_risk | general (строка, не enum: значения пересекаются с Recommendation.kind)
+	Kind string `json:"kind"`
+
+	// Metric ключевая величина (доля %, балл, мс)
+	Metric   *float32        `json:"metric,omitempty"`
+	Severity InsightSeverity `json:"severity"`
+	Title    string          `json:"title"`
+}
+
+// InsightSeverity defines model for Insight.Severity.
+type InsightSeverity string
+
 // Lesson defines model for Lesson.
 type Lesson struct {
 	CreatedAt    time.Time           `json:"createdAt"`
@@ -1971,9 +2269,12 @@ type LessonParticipant struct {
 
 // LessonSettings defines model for LessonSettings.
 type LessonSettings struct {
-	AllowReplay     bool    `json:"allowReplay"`
-	CardsPerStudent int     `json:"cardsPerStudent"`
-	PassThreshold   float32 `json:"passThreshold"`
+	AllowReplay bool `json:"allowReplay"`
+
+	// CardSource v1.4 (ТЗ, «действия с карточками»): из каких карточек собран пул занятия — сгенерированных системой (source ≠ student), сформированных обучающимися (source = student) или смешанный. Сервер проверяет пул при создании занятия (422 details.scenarioIds, если сценарий не подходит под выбранный источник). Нет — mixed (как раньше).
+	CardSource      *CardSource `json:"cardSource,omitempty"`
+	CardsPerStudent int         `json:"cardsPerStudent"`
+	PassThreshold   float32     `json:"passThreshold"`
 
 	// Voice Голосовой режим занятия (lessons.settings.voice)
 	Voice VoiceSettings `json:"voice"`
@@ -1991,10 +2292,42 @@ type LessonSettings struct {
 // LessonStatus defines model for LessonStatus.
 type LessonStatus string
 
+// LogEntry defines model for LogEntry.
+type LogEntry struct {
+	At      time.Time               `json:"at"`
+	Attrs   *map[string]interface{} `json:"attrs,omitempty"`
+	Level   LogEntryLevel           `json:"level"`
+	Message string                  `json:"message"`
+}
+
+// LogEntryLevel defines model for LogEntry.Level.
+type LogEntryLevel string
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
+}
+
+// Material defines model for Material.
+type Material struct {
+	AuthorId   *openapi_types.UUID `json:"authorId,omitempty"`
+	AuthorName *string             `json:"authorName,omitempty"`
+	Category   string              `json:"category"`
+
+	// Content Markdown; только в GET /materials/{id}
+	Content     *string            `json:"content,omitempty"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	Description *string            `json:"description,omitempty"`
+	FileName    *string            `json:"fileName,omitempty"`
+	HasFile     bool               `json:"hasFile"`
+	Id          openapi_types.UUID `json:"id"`
+	MimeType    *string            `json:"mimeType,omitempty"`
+	SizeBytes   *int64             `json:"sizeBytes,omitempty"`
+
+	// System из поставки (не удаляется)
+	System bool   `json:"system"`
+	Title  string `json:"title"`
 }
 
 // MonitorMessage Сообщение сервер -> преподаватель в /ws/lessons/{id}/monitor
@@ -2139,6 +2472,54 @@ type Scenario struct {
 
 // ScenarioMode defines model for Scenario.Mode.
 type ScenarioMode string
+
+// ScenarioBundle defines model for ScenarioBundle.
+type ScenarioBundle struct {
+	ExportedAt *time.Time           `json:"exportedAt,omitempty"`
+	Format     ScenarioBundleFormat `json:"format"`
+	Scenarios  []ScenarioBundleItem `json:"scenarios"`
+}
+
+// ScenarioBundleFormat defines model for ScenarioBundle.Format.
+type ScenarioBundleFormat string
+
+// ScenarioBundleItem переносимое содержание сценария (без id, статусов и авторов)
+type ScenarioBundleItem struct {
+	CallScript CallScript `json:"callScript"`
+	CategoryId string     `json:"categoryId"`
+	Difficulty Difficulty `json:"difficulty"`
+
+	// EtalonCard контрактный IncidentCard (эталонная карточка), camelCase
+	EtalonCard *IncidentCard `json:"etalonCard,omitempty"`
+
+	// EtalonDraft Карточка АРМ-112 как её видит оператор (attempts.card / attempt_drafts.data). Расширение контрактного IncidentCard (GAP-01..06). Для ai-service go-core строит проекцию IncidentCard (snake_case) — фронт этого не видит.
+	EtalonDraft      IncidentCardDraft      `json:"etalonDraft"`
+	ExpectedActions  *[]ExpectedAction      `json:"expectedActions,omitempty"`
+	ExpectedDialogue *ExpectedDialogue      `json:"expectedDialogue,omitempty"`
+	Mode             ScenarioBundleItemMode `json:"mode"`
+	NotesForTeacher  *string                `json:"notesForTeacher,omitempty"`
+	RequiredFields   *[]string              `json:"requiredFields,omitempty"`
+	Scoring          *Scoring               `json:"scoring,omitempty"`
+	Source           *ScenarioSource        `json:"source,omitempty"`
+	Title            string                 `json:"title"`
+}
+
+// ScenarioBundleItemMode defines model for ScenarioBundleItem.Mode.
+type ScenarioBundleItemMode string
+
+// ScenarioImportResult defines model for ScenarioImportResult.
+type ScenarioImportResult struct {
+	Created []struct {
+		Index      int                `json:"index"`
+		ScenarioId openapi_types.UUID `json:"scenarioId"`
+		Title      string             `json:"title"`
+	} `json:"created"`
+	Rejected []struct {
+		Index   int     `json:"index"`
+		Message string  `json:"message"`
+		Title   *string `json:"title,omitempty"`
+	} `json:"rejected"`
+}
 
 // ScenarioPatch Частичное обновление; любое из полей эталона -> новая версия etalons
 type ScenarioPatch struct {
@@ -2417,6 +2798,9 @@ type Cursor = string
 // LessonId defines model for lessonId.
 type LessonId = openapi_types.UUID
 
+// MaterialId defines model for materialId.
+type MaterialId = openapi_types.UUID
+
 // ScenarioId defines model for scenarioId.
 type ScenarioId = openapi_types.UUID
 
@@ -2467,9 +2851,30 @@ type ListAuditParams struct {
 	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListLogsParams defines parameters for ListLogs.
+type ListLogsParams struct {
+	// Level минимальный уровень
+	Level *ListLogsParamsLevel `form:"level,omitempty" json:"level,omitempty"`
+
+	// Q подстрока в сообщении/атрибутах
+	Q     *string `form:"q,omitempty" json:"q,omitempty"`
+	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLogsParamsLevel defines parameters for ListLogs.
+type ListLogsParamsLevel string
+
 // UpdateSettingJSONBody defines parameters for UpdateSetting.
 type UpdateSettingJSONBody struct {
 	Value interface{} `json:"value"`
+}
+
+// AnalyticsOverviewParams defines parameters for AnalyticsOverview.
+type AnalyticsOverviewParams struct {
+	LessonId   *openapi_types.UUID `form:"lessonId,omitempty" json:"lessonId,omitempty"`
+	StudentId  *openapi_types.UUID `form:"studentId,omitempty" json:"studentId,omitempty"`
+	CategoryId *string             `form:"categoryId,omitempty" json:"categoryId,omitempty"`
+	Days       *int                `form:"days,omitempty" json:"days,omitempty"`
 }
 
 // DialogueTurnJSONBody defines parameters for DialogueTurn.
@@ -2519,6 +2924,11 @@ type SubmitAttemptJSONBody struct {
 	Card IncidentCardDraft `json:"card"`
 }
 
+// AttemptToScenarioJSONBody defines parameters for AttemptToScenario.
+type AttemptToScenarioJSONBody struct {
+	Title *string `json:"title,omitempty"`
+}
+
 // SearchIncidentTypesParams defines parameters for SearchIncidentTypes.
 type SearchIncidentTypesParams struct {
 	Q     string `form:"q" json:"q"`
@@ -2553,6 +2963,26 @@ type LessonReportParams struct {
 // LessonReportParamsFormat defines parameters for LessonReport.
 type LessonReportParamsFormat string
 
+// ListMaterialsParams defines parameters for ListMaterials.
+type ListMaterialsParams struct {
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Q поиск по названию/описанию
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// CreateMaterialMultipartBody defines parameters for CreateMaterial.
+type CreateMaterialMultipartBody struct {
+	// Category раздел: «Памятка АРМ-112», «Регламенты», «Аудио вызовов», …
+	Category *string `json:"category,omitempty"`
+
+	// Content текст материала (Markdown)
+	Content     *string             `json:"content,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	File        *openapi_types.File `json:"file,omitempty"`
+	Title       string              `json:"title"`
+}
+
 // ReactionTransitionsParams defines parameters for ReactionTransitions.
 type ReactionTransitionsParams struct {
 	Current     ReactionStatus `form:"current" json:"current"`
@@ -2572,6 +3002,12 @@ type ListScenariosParams struct {
 
 // ListScenariosParamsMode defines parameters for ListScenarios.
 type ListScenariosParamsMode string
+
+// ExportScenariosParams defines parameters for ExportScenarios.
+type ExportScenariosParams struct {
+	// Ids uuid через запятую; нет — все утверждённые
+	Ids *string `form:"ids,omitempty" json:"ids,omitempty"`
+}
 
 // RejectScenarioJSONBody defines parameters for RejectScenario.
 type RejectScenarioJSONBody struct {
@@ -2597,6 +3033,12 @@ type ListUsersParams struct {
 // SetUserBlockedJSONBody defines parameters for SetUserBlocked.
 type SetUserBlockedJSONBody struct {
 	Blocked bool `json:"blocked"`
+}
+
+// UserCertificateParams defines parameters for UserCertificate.
+type UserCertificateParams struct {
+	// Tz часовой пояс IANA для даты
+	Tz *string `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // WsLessonMonitorParams defines parameters for WsLessonMonitor.
@@ -2634,6 +3076,9 @@ type ChangeServiceStatusJSONRequestBody = ChangeStatusInput
 // SubmitAttemptJSONRequestBody defines body for SubmitAttempt for application/json ContentType.
 type SubmitAttemptJSONRequestBody SubmitAttemptJSONBody
 
+// AttemptToScenarioJSONRequestBody defines body for AttemptToScenario for application/json ContentType.
+type AttemptToScenarioJSONRequestBody AttemptToScenarioJSONBody
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -2643,11 +3088,17 @@ type ResolveServicesJSONRequestBody = ResolveServicesRequest
 // CreateLessonJSONRequestBody defines body for CreateLesson for application/json ContentType.
 type CreateLessonJSONRequestBody = CreateLessonInput
 
+// CreateMaterialMultipartRequestBody defines body for CreateMaterial for multipart/form-data ContentType.
+type CreateMaterialMultipartRequestBody CreateMaterialMultipartBody
+
 // CreateScenarioJSONRequestBody defines body for CreateScenario for application/json ContentType.
 type CreateScenarioJSONRequestBody = CreateScenarioInput
 
 // GenerateScenarioJSONRequestBody defines body for GenerateScenario for application/json ContentType.
 type GenerateScenarioJSONRequestBody = GenerateScenarioInput
+
+// ImportScenariosJSONRequestBody defines body for ImportScenarios for application/json ContentType.
+type ImportScenariosJSONRequestBody = ScenarioBundle
 
 // UpdateScenarioJSONRequestBody defines body for UpdateScenario for application/json ContentType.
 type UpdateScenarioJSONRequestBody = ScenarioPatch
