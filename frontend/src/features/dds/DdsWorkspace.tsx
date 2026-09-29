@@ -166,7 +166,7 @@ export function DdsWorkspace({
                 }}
               />
               <div className="arm-desc__counter">
-                {saveState === 'saving' ? 'Сохранение… · ' : saveState === 'error' ? 'Ошибка сохранения · ' : saveState === 'saved' ? 'Сохранено · ' : ''}
+                {saveState === 'saving' ? 'Сохранение… · ' : saveState === 'offline' ? 'Нет связи, сохранено на устройстве · ' : saveState === 'error' ? 'Ошибка сохранения · ' : saveState === 'saved' ? 'Сохранено · ' : ''}
                 {card.actionsTaken.length}/{ACTION_LIMIT}
               </div>
             </div>

@@ -1,0 +1,1422 @@
+{
+  "groups": [
+    {
+      "id": "1",
+      "title": "Занятие: 100 обучающихся заполняют карточки",
+      "description": "Все обучающиеся в одном занятии (cardsPerStudent=50): список занятий → легенда → accept-call → цикл «правка → PUT /draft → POST /events (1–4 события, clientSeq) → изредка GET /attempts/{id}» с паузой 1–2 с; через 15–25 с сдача (события, черновик, submit, GET /evaluation) и следующая карточка.",
+      "vus": {
+        "students": 100
+      },
+      "startedAt": "2026-09-29T20:25:25.525568+03:00",
+      "windowSec": 30,
+      "endpoints": [
+        {
+          "endpoint": "PUT /attempts/{id}/draft",
+          "count": 1682,
+          "rps": 56.1,
+          "meanMs": 6.7,
+          "p50Ms": 2.6,
+          "p90Ms": 4.9,
+          "p95Ms": 6,
+          "p99Ms": 186.4,
+          "maxMs": 412,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 1682
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/events",
+          "count": 1679,
+          "rps": 56,
+          "meanMs": 36.6,
+          "p50Ms": 39.1,
+          "p90Ms": 55.3,
+          "p95Ms": 56.6,
+          "p99Ms": 61.2,
+          "maxMs": 336.9,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 1679
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}",
+          "count": 325,
+          "rps": 10.8,
+          "meanMs": 1.3,
+          "p50Ms": 1.2,
+          "p90Ms": 2.1,
+          "p95Ms": 2.3,
+          "p99Ms": 2.8,
+          "maxMs": 5.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 325
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/call-script",
+          "count": 199,
+          "rps": 6.6,
+          "meanMs": 0.9,
+          "p50Ms": 0.8,
+          "p90Ms": 1.6,
+          "p95Ms": 2.1,
+          "p99Ms": 3.8,
+          "maxMs": 4.5,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 199
+          }
+        },
+        {
+          "endpoint": "GET /lessons/assigned",
+          "count": 199,
+          "rps": 6.6,
+          "meanMs": 2.3,
+          "p50Ms": 1.7,
+          "p90Ms": 4.6,
+          "p95Ms": 5.4,
+          "p99Ms": 8.1,
+          "maxMs": 9.5,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 199
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/draft",
+          "count": 193,
+          "rps": 6.4,
+          "meanMs": 0.7,
+          "p50Ms": 0.6,
+          "p90Ms": 1.1,
+          "p95Ms": 1.5,
+          "p99Ms": 2.4,
+          "maxMs": 2.4,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 193
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/accept-call",
+          "count": 193,
+          "rps": 6.4,
+          "meanMs": 12.3,
+          "p50Ms": 2.8,
+          "p90Ms": 7.8,
+          "p95Ms": 54.5,
+          "p99Ms": 294.4,
+          "maxMs": 331.8,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 193
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/services",
+          "count": 164,
+          "rps": 5.5,
+          "meanMs": 4.9,
+          "p50Ms": 2.9,
+          "p90Ms": 4.9,
+          "p95Ms": 6,
+          "p99Ms": 85,
+          "maxMs": 85.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 164
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/evaluation",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 1.8,
+          "p50Ms": 1,
+          "p90Ms": 3,
+          "p95Ms": 3.2,
+          "p99Ms": 5.6,
+          "maxMs": 49,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/submit",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 6.2,
+          "p50Ms": 4.4,
+          "p90Ms": 11.1,
+          "p95Ms": 16,
+          "p99Ms": 24.8,
+          "maxMs": 25.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        }
+      ],
+      "total": {
+        "endpoint": "ВСЕ ЗАПРОСЫ",
+        "count": 4834,
+        "rps": 161.1,
+        "meanMs": 16.1,
+        "p50Ms": 3.7,
+        "p90Ms": 52.3,
+        "p95Ms": 54.9,
+        "p99Ms": 62,
+        "maxMs": 412,
+        "over2s": 0,
+        "errors": 0,
+        "statuses": {
+          "200": 4834
+        }
+      },
+      "timeline": [
+        {
+          "sec": 0,
+          "count": 224,
+          "errors": 0,
+          "maxMs": 9.8
+        },
+        {
+          "sec": 1,
+          "count": 154,
+          "errors": 0,
+          "maxMs": 56
+        },
+        {
+          "sec": 2,
+          "count": 114,
+          "errors": 0,
+          "maxMs": 61.2
+        },
+        {
+          "sec": 3,
+          "count": 138,
+          "errors": 0,
+          "maxMs": 61.8
+        },
+        {
+          "sec": 4,
+          "count": 212,
+          "errors": 0,
+          "maxMs": 56.6
+        },
+        {
+          "sec": 5,
+          "count": 147,
+          "errors": 0,
+          "maxMs": 61.1
+        },
+        {
+          "sec": 6,
+          "count": 141,
+          "errors": 0,
+          "maxMs": 58.3
+        },
+        {
+          "sec": 7,
+          "count": 170,
+          "errors": 0,
+          "maxMs": 60.2
+        },
+        {
+          "sec": 8,
+          "count": 169,
+          "errors": 0,
+          "maxMs": 57.5
+        },
+        {
+          "sec": 9,
+          "count": 141,
+          "errors": 0,
+          "maxMs": 59.7
+        },
+        {
+          "sec": 10,
+          "count": 122,
+          "errors": 0,
+          "maxMs": 56.8
+        },
+        {
+          "sec": 11,
+          "count": 139,
+          "errors": 0,
+          "maxMs": 62
+        },
+        {
+          "sec": 12,
+          "count": 149,
+          "errors": 0,
+          "maxMs": 62.2
+        },
+        {
+          "sec": 13,
+          "count": 158,
+          "errors": 0,
+          "maxMs": 58.2
+        },
+        {
+          "sec": 14,
+          "count": 163,
+          "errors": 0,
+          "maxMs": 58.7
+        },
+        {
+          "sec": 15,
+          "count": 136,
+          "errors": 0,
+          "maxMs": 62.9
+        },
+        {
+          "sec": 16,
+          "count": 146,
+          "errors": 0,
+          "maxMs": 61.8
+        },
+        {
+          "sec": 17,
+          "count": 140,
+          "errors": 0,
+          "maxMs": 61.5
+        },
+        {
+          "sec": 18,
+          "count": 199,
+          "errors": 0,
+          "maxMs": 54.7
+        },
+        {
+          "sec": 19,
+          "count": 163,
+          "errors": 0,
+          "maxMs": 61.3
+        },
+        {
+          "sec": 20,
+          "count": 174,
+          "errors": 0,
+          "maxMs": 56.3
+        },
+        {
+          "sec": 21,
+          "count": 183,
+          "errors": 0,
+          "maxMs": 54.4
+        },
+        {
+          "sec": 22,
+          "count": 174,
+          "errors": 0,
+          "maxMs": 59.5
+        },
+        {
+          "sec": 23,
+          "count": 174,
+          "errors": 0,
+          "maxMs": 74.3
+        },
+        {
+          "sec": 24,
+          "count": 179,
+          "errors": 0,
+          "maxMs": 412
+        },
+        {
+          "sec": 25,
+          "count": 175,
+          "errors": 0,
+          "maxMs": 54
+        },
+        {
+          "sec": 26,
+          "count": 171,
+          "errors": 0,
+          "maxMs": 120.2
+        },
+        {
+          "sec": 27,
+          "count": 167,
+          "errors": 0,
+          "maxMs": 54.9
+        },
+        {
+          "sec": 28,
+          "count": 159,
+          "errors": 0,
+          "maxMs": 87
+        },
+        {
+          "sec": 29,
+          "count": 153,
+          "errors": 0,
+          "maxMs": 53.9
+        }
+      ],
+      "containers": [
+        {
+          "name": "lct112-fakeai-1",
+          "samples": 14,
+          "cpuAvgPct": 0.4,
+          "cpuMaxPct": 1.1,
+          "memAvgMiB": 14.6,
+          "memMaxMiB": 14.9
+        },
+        {
+          "name": "lct112-go-core-1",
+          "samples": 14,
+          "cpuAvgPct": 12.2,
+          "cpuMaxPct": 15.6,
+          "memAvgMiB": 239.2,
+          "memMaxMiB": 298
+        },
+        {
+          "name": "lct112-postgres-1",
+          "samples": 14,
+          "cpuAvgPct": 11.5,
+          "cpuMaxPct": 17.4,
+          "memAvgMiB": 253.7,
+          "memMaxMiB": 264.7
+        }
+      ],
+      "db": {
+        "writeRequestsOk": 3818,
+        "writeRequestsPerSec": 127.3,
+        "eventRows": 4914,
+        "clientEventRows": 4064,
+        "eventRowsPerSec": 163.8,
+        "draftUpserts": 1682,
+        "draftUpsertsPerSec": 56.1,
+        "tuplesWritten": 9677,
+        "xactCommits": 4993
+      },
+      "counters": {
+        "acceptCalls": 193,
+        "draftsSaved": 1582,
+        "evaluationPolls": 100,
+        "eventBatches": 1679,
+        "eventsAccepted": 4054,
+        "noAttemptWaits": 0,
+        "servicesAdded": 164,
+        "submits": 100
+      },
+      "pass": true,
+      "verdict": "PASS: max 412 мс, p99 62 мс, ошибок 0"
+    },
+    {
+      "id": "2",
+      "title": "Смешанная нагрузка ролей",
+      "description": "80 обучающихся заполняют карточки (как в группе 1) в 15 занятиях разных преподавателей; 15 преподавателей: экран занятия с обновлением раз в 3 с (занятие + попытки) и WebSocket-монитор, просмотр оценок, хронологии, сценариев, прогресса, CSV-отчёта; 5 администраторов: здоровье контура, пользователи, аудит, настройки, занятия (пауза 2–4 с).",
+      "vus": {
+        "admins": 5,
+        "students": 80,
+        "teachers": 15
+      },
+      "startedAt": "2026-09-29T20:26:59.061495+03:00",
+      "windowSec": 30,
+      "endpoints": [
+        {
+          "endpoint": "PUT /attempts/{id}/draft",
+          "count": 1360,
+          "rps": 45.3,
+          "meanMs": 3.4,
+          "p50Ms": 2.7,
+          "p90Ms": 5,
+          "p95Ms": 6.1,
+          "p99Ms": 22.7,
+          "maxMs": 65.3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 1360
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/events",
+          "count": 1358,
+          "rps": 45.3,
+          "meanMs": 38.5,
+          "p50Ms": 42.7,
+          "p90Ms": 55.9,
+          "p95Ms": 57.5,
+          "p99Ms": 61.5,
+          "maxMs": 71,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 1358
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}",
+          "count": 269,
+          "rps": 9,
+          "meanMs": 1.6,
+          "p50Ms": 1.5,
+          "p90Ms": 2.5,
+          "p95Ms": 2.8,
+          "p99Ms": 4.9,
+          "maxMs": 5.5,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 269
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/call-script",
+          "count": 158,
+          "rps": 5.3,
+          "meanMs": 0.9,
+          "p50Ms": 0.7,
+          "p90Ms": 1.5,
+          "p95Ms": 1.9,
+          "p99Ms": 2.7,
+          "maxMs": 9.6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 158
+          }
+        },
+        {
+          "endpoint": "GET /lessons/assigned",
+          "count": 158,
+          "rps": 5.3,
+          "meanMs": 2.1,
+          "p50Ms": 1.9,
+          "p90Ms": 3.8,
+          "p95Ms": 4.2,
+          "p99Ms": 5.9,
+          "maxMs": 12.7,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 158
+          }
+        },
+        {
+          "endpoint": "GET /lessons/{id}",
+          "count": 154,
+          "rps": 5.1,
+          "meanMs": 2.1,
+          "p50Ms": 1.7,
+          "p90Ms": 3.6,
+          "p95Ms": 4.1,
+          "p99Ms": 4.9,
+          "maxMs": 6.6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 154
+          }
+        },
+        {
+          "endpoint": "GET /lessons/{id}/attempts",
+          "count": 154,
+          "rps": 5.1,
+          "meanMs": 1.5,
+          "p50Ms": 1.3,
+          "p90Ms": 2.3,
+          "p95Ms": 3.2,
+          "p99Ms": 4.2,
+          "maxMs": 11,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 154
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/draft",
+          "count": 147,
+          "rps": 4.9,
+          "meanMs": 0.7,
+          "p50Ms": 0.6,
+          "p90Ms": 1.1,
+          "p95Ms": 1.6,
+          "p99Ms": 2.6,
+          "maxMs": 2.6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 147
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/accept-call",
+          "count": 147,
+          "rps": 4.9,
+          "meanMs": 4.3,
+          "p50Ms": 3.8,
+          "p90Ms": 7.1,
+          "p95Ms": 8,
+          "p99Ms": 13.8,
+          "maxMs": 18.9,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 147
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/services",
+          "count": 123,
+          "rps": 4.1,
+          "meanMs": 3.5,
+          "p50Ms": 3.5,
+          "p90Ms": 4.9,
+          "p95Ms": 6.4,
+          "p99Ms": 7,
+          "maxMs": 10.4,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 123
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/evaluation",
+          "count": 101,
+          "rps": 3.4,
+          "meanMs": 2.1,
+          "p50Ms": 1.6,
+          "p90Ms": 3.7,
+          "p95Ms": 5,
+          "p99Ms": 5.3,
+          "maxMs": 7.3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 101
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/submit",
+          "count": 80,
+          "rps": 2.7,
+          "meanMs": 6.8,
+          "p50Ms": 6.2,
+          "p90Ms": 10.7,
+          "p95Ms": 11.4,
+          "p99Ms": 16.2,
+          "maxMs": 16.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 80
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/events",
+          "count": 58,
+          "rps": 1.9,
+          "meanMs": 1.1,
+          "p50Ms": 0.9,
+          "p90Ms": 1.7,
+          "p95Ms": 2.6,
+          "p99Ms": 3.5,
+          "maxMs": 3.5,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 58
+          }
+        },
+        {
+          "endpoint": "GET /lessons",
+          "count": 24,
+          "rps": 0.8,
+          "meanMs": 6.6,
+          "p50Ms": 3.8,
+          "p90Ms": 14.7,
+          "p95Ms": 17.7,
+          "p99Ms": 18.2,
+          "maxMs": 18.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 24
+          }
+        },
+        {
+          "endpoint": "GET /scenarios",
+          "count": 17,
+          "rps": 0.6,
+          "meanMs": 3.5,
+          "p50Ms": 3.7,
+          "p90Ms": 5,
+          "p95Ms": 6.2,
+          "p99Ms": 6.2,
+          "maxMs": 6.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 17
+          }
+        },
+        {
+          "endpoint": "GET /scenarios/{id}",
+          "count": 17,
+          "rps": 0.6,
+          "meanMs": 1.6,
+          "p50Ms": 1.4,
+          "p90Ms": 2.9,
+          "p95Ms": 3,
+          "p99Ms": 3,
+          "maxMs": 3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 17
+          }
+        },
+        {
+          "endpoint": "GET /users/{id}/progress",
+          "count": 16,
+          "rps": 0.5,
+          "meanMs": 5.9,
+          "p50Ms": 4,
+          "p90Ms": 14.7,
+          "p95Ms": 15.1,
+          "p99Ms": 15.1,
+          "maxMs": 15.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 16
+          }
+        },
+        {
+          "endpoint": "WS /ws/lessons/{id}/monitor (connect)",
+          "count": 15,
+          "rps": 0.5,
+          "meanMs": 14.8,
+          "p50Ms": 14.7,
+          "p90Ms": 22.8,
+          "p95Ms": 26.9,
+          "p99Ms": 26.9,
+          "maxMs": 26.9,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "101": 15
+          }
+        },
+        {
+          "endpoint": "GET /users",
+          "count": 10,
+          "rps": 0.3,
+          "meanMs": 3.5,
+          "p50Ms": 3.4,
+          "p90Ms": 5.1,
+          "p95Ms": 5.6,
+          "p99Ms": 5.6,
+          "maxMs": 5.6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 10
+          }
+        },
+        {
+          "endpoint": "GET /admin/audit",
+          "count": 9,
+          "rps": 0.3,
+          "meanMs": 8,
+          "p50Ms": 6.7,
+          "p90Ms": 18.3,
+          "p95Ms": 18.3,
+          "p99Ms": 18.3,
+          "maxMs": 18.3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 9
+          }
+        },
+        {
+          "endpoint": "GET /admin/health",
+          "count": 9,
+          "rps": 0.3,
+          "meanMs": 3.8,
+          "p50Ms": 3.7,
+          "p90Ms": 6,
+          "p95Ms": 6,
+          "p99Ms": 6,
+          "maxMs": 6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 9
+          }
+        },
+        {
+          "endpoint": "GET /admin/settings",
+          "count": 9,
+          "rps": 0.3,
+          "meanMs": 1.9,
+          "p50Ms": 1.3,
+          "p90Ms": 4.2,
+          "p95Ms": 4.2,
+          "p99Ms": 4.2,
+          "maxMs": 4.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 9
+          }
+        },
+        {
+          "endpoint": "GET /lessons/{id}/report?format=csv",
+          "count": 6,
+          "rps": 0.2,
+          "meanMs": 7.1,
+          "p50Ms": 5.6,
+          "p90Ms": 11.3,
+          "p95Ms": 11.3,
+          "p99Ms": 11.3,
+          "maxMs": 11.3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 6
+          }
+        }
+      ],
+      "total": {
+        "endpoint": "ВСЕ ЗАПРОСЫ",
+        "count": 4399,
+        "rps": 146.6,
+        "meanMs": 13.9,
+        "p50Ms": 3.5,
+        "p90Ms": 52.9,
+        "p95Ms": 54.8,
+        "p99Ms": 58.5,
+        "maxMs": 71,
+        "over2s": 0,
+        "errors": 0,
+        "statuses": {
+          "101": 15,
+          "200": 4384
+        }
+      },
+      "timeline": [
+        {
+          "sec": 0,
+          "count": 243,
+          "errors": 0,
+          "maxMs": 26.9
+        },
+        {
+          "sec": 1,
+          "count": 122,
+          "errors": 0,
+          "maxMs": 54.2
+        },
+        {
+          "sec": 2,
+          "count": 98,
+          "errors": 0,
+          "maxMs": 71
+        },
+        {
+          "sec": 3,
+          "count": 157,
+          "errors": 0,
+          "maxMs": 61.6
+        },
+        {
+          "sec": 4,
+          "count": 163,
+          "errors": 0,
+          "maxMs": 58.7
+        },
+        {
+          "sec": 5,
+          "count": 117,
+          "errors": 0,
+          "maxMs": 62
+        },
+        {
+          "sec": 6,
+          "count": 172,
+          "errors": 0,
+          "maxMs": 56.1
+        },
+        {
+          "sec": 7,
+          "count": 141,
+          "errors": 0,
+          "maxMs": 58.5
+        },
+        {
+          "sec": 8,
+          "count": 134,
+          "errors": 0,
+          "maxMs": 59.7
+        },
+        {
+          "sec": 9,
+          "count": 137,
+          "errors": 0,
+          "maxMs": 58
+        },
+        {
+          "sec": 10,
+          "count": 104,
+          "errors": 0,
+          "maxMs": 61.2
+        },
+        {
+          "sec": 11,
+          "count": 115,
+          "errors": 0,
+          "maxMs": 65.3
+        },
+        {
+          "sec": 12,
+          "count": 141,
+          "errors": 0,
+          "maxMs": 61.2
+        },
+        {
+          "sec": 13,
+          "count": 155,
+          "errors": 0,
+          "maxMs": 64
+        },
+        {
+          "sec": 14,
+          "count": 155,
+          "errors": 0,
+          "maxMs": 58.1
+        },
+        {
+          "sec": 15,
+          "count": 118,
+          "errors": 0,
+          "maxMs": 63.7
+        },
+        {
+          "sec": 16,
+          "count": 134,
+          "errors": 0,
+          "maxMs": 56.4
+        },
+        {
+          "sec": 17,
+          "count": 124,
+          "errors": 0,
+          "maxMs": 59.1
+        },
+        {
+          "sec": 18,
+          "count": 145,
+          "errors": 0,
+          "maxMs": 64.8
+        },
+        {
+          "sec": 19,
+          "count": 160,
+          "errors": 0,
+          "maxMs": 58.4
+        },
+        {
+          "sec": 20,
+          "count": 195,
+          "errors": 0,
+          "maxMs": 60.8
+        },
+        {
+          "sec": 21,
+          "count": 153,
+          "errors": 0,
+          "maxMs": 56
+        },
+        {
+          "sec": 22,
+          "count": 160,
+          "errors": 0,
+          "maxMs": 55.7
+        },
+        {
+          "sec": 23,
+          "count": 125,
+          "errors": 0,
+          "maxMs": 64.6
+        },
+        {
+          "sec": 24,
+          "count": 159,
+          "errors": 0,
+          "maxMs": 58.1
+        },
+        {
+          "sec": 25,
+          "count": 176,
+          "errors": 0,
+          "maxMs": 56.8
+        },
+        {
+          "sec": 26,
+          "count": 151,
+          "errors": 0,
+          "maxMs": 63.4
+        },
+        {
+          "sec": 27,
+          "count": 175,
+          "errors": 0,
+          "maxMs": 59.1
+        },
+        {
+          "sec": 28,
+          "count": 122,
+          "errors": 0,
+          "maxMs": 63.4
+        },
+        {
+          "sec": 29,
+          "count": 148,
+          "errors": 0,
+          "maxMs": 60.6
+        }
+      ],
+      "containers": [
+        {
+          "name": "lct112-fakeai-1",
+          "samples": 14,
+          "cpuAvgPct": 0.5,
+          "cpuMaxPct": 1.5,
+          "memAvgMiB": 14.9,
+          "memMaxMiB": 15.2
+        },
+        {
+          "name": "lct112-go-core-1",
+          "samples": 14,
+          "cpuAvgPct": 13.2,
+          "cpuMaxPct": 17.2,
+          "memAvgMiB": 83.1,
+          "memMaxMiB": 85.3
+        },
+        {
+          "name": "lct112-postgres-1",
+          "samples": 14,
+          "cpuAvgPct": 13.5,
+          "cpuMaxPct": 20.6,
+          "memAvgMiB": 278.1,
+          "memMaxMiB": 283.6
+        }
+      ],
+      "db": {
+        "writeRequestsOk": 3068,
+        "writeRequestsPerSec": 102.3,
+        "eventRows": 3936,
+        "clientEventRows": 3279,
+        "eventRowsPerSec": 131.2,
+        "draftUpserts": 1360,
+        "draftUpsertsPerSec": 45.3,
+        "tuplesWritten": 7778,
+        "xactCommits": 4640
+      },
+      "counters": {
+        "acceptCalls": 147,
+        "draftsSaved": 1280,
+        "evaluationPolls": 80,
+        "eventBatches": 1358,
+        "eventsAccepted": 3273,
+        "noAttemptWaits": 0,
+        "servicesAdded": 123,
+        "submits": 80,
+        "wsMonitorConnects": 15,
+        "wsMonitorDrops": 0,
+        "wsMonitorMessages": 2399
+      },
+      "pass": true,
+      "verdict": "PASS: max 71 мс, p99 58 мс, ошибок 0"
+    },
+    {
+      "id": "3",
+      "title": "Пик: одновременный старт и сдача",
+      "description": "Все обучающиеся одного занятия (1 карточка) по общему сигналу одновременно нажимают «Принять вызов» (t=1 с), открывают WebSocket попытки, легенду и черновик; 4 правки через 2 с (PUT /draft + POST /events); по второму сигналу (t=11 с) одновременно досылают события, сохраняют черновик и сдают карточку; далее опрос GET /evaluation раз в 1,5 с до конца окна. После окна (вне замера) — ожидание итоговой оценки всех AI-слоёв.",
+      "vus": {
+        "students": 100
+      },
+      "startedAt": "2026-09-29T20:28:39.278001+03:00",
+      "windowSec": 30,
+      "endpoints": [
+        {
+          "endpoint": "GET /attempts/{id}/evaluation",
+          "count": 1068,
+          "rps": 35.6,
+          "meanMs": 8.4,
+          "p50Ms": 3,
+          "p90Ms": 25.6,
+          "p95Ms": 35.8,
+          "p99Ms": 59,
+          "maxMs": 65.2,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 1068
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/events",
+          "count": 500,
+          "rps": 16.7,
+          "meanMs": 48.9,
+          "p50Ms": 42,
+          "p90Ms": 101.5,
+          "p95Ms": 119.7,
+          "p99Ms": 121.4,
+          "maxMs": 123.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 500
+          }
+        },
+        {
+          "endpoint": "PUT /attempts/{id}/draft",
+          "count": 500,
+          "rps": 16.7,
+          "meanMs": 16.9,
+          "p50Ms": 1.4,
+          "p90Ms": 63.8,
+          "p95Ms": 70.4,
+          "p99Ms": 115.1,
+          "maxMs": 231.8,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 500
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/call-script",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 46,
+          "p50Ms": 37,
+          "p90Ms": 82.2,
+          "p95Ms": 88,
+          "p99Ms": 100,
+          "maxMs": 104.3,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        },
+        {
+          "endpoint": "GET /attempts/{id}/draft",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 20.4,
+          "p50Ms": 21.6,
+          "p90Ms": 24.8,
+          "p95Ms": 26.7,
+          "p99Ms": 28.2,
+          "maxMs": 28.6,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/accept-call",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 120.9,
+          "p50Ms": 128.5,
+          "p90Ms": 153.4,
+          "p95Ms": 160,
+          "p99Ms": 161.9,
+          "maxMs": 199.7,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        },
+        {
+          "endpoint": "POST /attempts/{id}/submit",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 212.9,
+          "p50Ms": 214.6,
+          "p90Ms": 249.7,
+          "p95Ms": 257,
+          "p99Ms": 294.3,
+          "maxMs": 308.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "200": 100
+          }
+        },
+        {
+          "endpoint": "WS /ws/attempts/{id} (connect)",
+          "count": 100,
+          "rps": 3.3,
+          "meanMs": 65.8,
+          "p50Ms": 56.1,
+          "p90Ms": 103.1,
+          "p95Ms": 109.8,
+          "p99Ms": 122,
+          "maxMs": 126.1,
+          "over2s": 0,
+          "errors": 0,
+          "statuses": {
+            "101": 100
+          }
+        }
+      ],
+      "total": {
+        "endpoint": "ВСЕ ЗАПРОСЫ",
+        "count": 2568,
+        "rps": 85.6,
+        "meanMs": 34.5,
+        "p50Ms": 11.7,
+        "p90Ms": 99.4,
+        "p95Ms": 144.5,
+        "p99Ms": 231.8,
+        "maxMs": 308.1,
+        "over2s": 0,
+        "errors": 0,
+        "statuses": {
+          "101": 100,
+          "200": 2468
+        }
+      },
+      "timeline": [
+        {
+          "sec": 1,
+          "count": 400,
+          "errors": 0,
+          "maxMs": 199.7
+        },
+        {
+          "sec": 3,
+          "count": 200,
+          "errors": 0,
+          "maxMs": 63.4
+        },
+        {
+          "sec": 5,
+          "count": 200,
+          "errors": 0,
+          "maxMs": 62.2
+        },
+        {
+          "sec": 7,
+          "count": 200,
+          "errors": 0,
+          "maxMs": 63.3
+        },
+        {
+          "sec": 9,
+          "count": 200,
+          "errors": 0,
+          "maxMs": 64.7
+        },
+        {
+          "sec": 11,
+          "count": 300,
+          "errors": 0,
+          "maxMs": 308.1
+        },
+        {
+          "sec": 12,
+          "count": 100,
+          "errors": 0,
+          "maxMs": 36.6
+        },
+        {
+          "sec": 14,
+          "count": 98,
+          "errors": 0,
+          "maxMs": 7
+        },
+        {
+          "sec": 15,
+          "count": 96,
+          "errors": 0,
+          "maxMs": 9.5
+        },
+        {
+          "sec": 17,
+          "count": 94,
+          "errors": 0,
+          "maxMs": 27
+        },
+        {
+          "sec": 18,
+          "count": 92,
+          "errors": 0,
+          "maxMs": 9.1
+        },
+        {
+          "sec": 20,
+          "count": 90,
+          "errors": 0,
+          "maxMs": 29.4
+        },
+        {
+          "sec": 21,
+          "count": 88,
+          "errors": 0,
+          "maxMs": 59.4
+        },
+        {
+          "sec": 23,
+          "count": 86,
+          "errors": 0,
+          "maxMs": 42.7
+        },
+        {
+          "sec": 24,
+          "count": 84,
+          "errors": 0,
+          "maxMs": 12
+        },
+        {
+          "sec": 26,
+          "count": 82,
+          "errors": 0,
+          "maxMs": 25.6
+        },
+        {
+          "sec": 27,
+          "count": 80,
+          "errors": 0,
+          "maxMs": 65.2
+        },
+        {
+          "sec": 29,
+          "count": 78,
+          "errors": 0,
+          "maxMs": 37.9
+        }
+      ],
+      "containers": [
+        {
+          "name": "lct112-fakeai-1",
+          "samples": 14,
+          "cpuAvgPct": 1.5,
+          "cpuMaxPct": 15.9,
+          "memAvgMiB": 14.9,
+          "memMaxMiB": 15.7
+        },
+        {
+          "name": "lct112-go-core-1",
+          "samples": 14,
+          "cpuAvgPct": 14.9,
+          "cpuMaxPct": 71.2,
+          "memAvgMiB": 94.1,
+          "memMaxMiB": 97.1
+        },
+        {
+          "name": "lct112-postgres-1",
+          "samples": 14,
+          "cpuAvgPct": 47.9,
+          "cpuMaxPct": 300.4,
+          "memAvgMiB": 293.3,
+          "memMaxMiB": 295.5
+        }
+      ],
+      "db": {
+        "writeRequestsOk": 1200,
+        "writeRequestsPerSec": 40,
+        "eventRows": 1494,
+        "clientEventRows": 1094,
+        "eventRowsPerSec": 49.8,
+        "draftUpserts": 500,
+        "draftUpsertsPerSec": 16.7,
+        "tuplesWritten": 4375,
+        "xactCommits": 4078
+      },
+      "counters": {
+        "acceptCallMaxMs": 199,
+        "acceptCalls": 100,
+        "draftsSaved": 400,
+        "evaluationDoneViaWS": 100,
+        "evaluationPolls": 2485,
+        "eventBatches": 500,
+        "eventsAccepted": 1094,
+        "noAttemptWaits": 0,
+        "servicesAdded": 0,
+        "submitMaxMs": 308,
+        "submits": 100,
+        "wsAttemptConnects": 100,
+        "wsAttemptMessages": 300
+      },
+      "extra": {
+        "evaluationDone": 100,
+        "note": "Время до итоговой оценки определяется AI-очередью (здесь — имитатор fakeai: 2 воркера LLM × 1,5 с на смысловую проверку), это не время отклика интерфейса: поля и тайминг оцениваются мгновенно в submit (status=partial).",
+        "submitToEvaluationDone": {
+          "n": 100,
+          "p50Sec": 37.79,
+          "p95Sec": 72.4,
+          "maxSec": 75.45
+        },
+        "submitted": 100
+      },
+      "pass": true,
+      "verdict": "PASS: max 308 мс, p99 232 мс, ошибок 0"
+    }
+  ],
+  "meta": {
+    "bench": {
+      "host": "Darwin 25.3.0 arm64",
+      "cpu": "Apple M4",
+      "cores": "10",
+      "ram": "16 GiB",
+      "os": "macOS 26.3.1",
+      "docker": "29.5.3 (linux/arm64), Docker Desktop",
+      "dockerCpus": "10",
+      "dockerMem": "10.2 GiB",
+      "goCoreImage": "lct112/go-core:dev sha256:9acd07c55c6ae217185fb171960b158e18a8461b51662b44368d1172379b61ad",
+      "goCoreVersion": "dev",
+      "postgres": "16.15",
+      "goVersion": "go version go1.26.3 darwin/arm64",
+      "toolCommit": "02d4fdb"
+    },
+    "config": {
+      "admins": 5,
+      "base": "https://localhost:9443",
+      "project": "lct112",
+      "requestTimeout": "15s",
+      "scenarios": [
+        "01a0ee0d-2cff-7712-a754-f8abde3b2152",
+        "01a0ee0d-2cf7-70c1-9131-adaf935951b6",
+        "01a0ee0d-002c-7e80-a8f4-9eb3537a5c66",
+        "01a0ee0d-002c-7332-ac15-4d05b3b6a4f8",
+        "01a0ee0d-0029-7cc6-8d10-99d4de07a552"
+      ],
+      "students": 100,
+      "teachers": 15,
+      "think": 1,
+      "window": "30s"
+    }
+  }
+}

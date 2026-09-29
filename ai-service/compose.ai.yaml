@@ -1,0 +1,88 @@
+# Реальный ai-service + Ollama + LanguageTool — фрагмент к корневому docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f ai-service/compose.ai.yaml up -d --build
+#   docker compose -f docker-compose.yml -f ai-service/compose.ai.yaml exec ollama ollama pull qwen2.5:7b-instruct
+#
+# ai-service живёт в той же сети default, что go-core: go-core ходит на http://ai-service:8000
+# (AI_SERVICE_URL в корневом compose), ai-service шлёт callback'и на http://go-core:8080.
+# Наружу ai-service/ollama/languagetool не публикуются (контракт: только docker-сеть + токен).
+# Не поднимать вместе с профилем fake (fakeai тоже отвечает по имени ai-service).
+#
+# Переменные (.env рядом с корневым compose или окружение):
+#   AI_WITH_VOICE=1      образ с Silero TTS + faster-whisper (0 — лёгкий образ без голоса)
+#   LLM_MODEL            модель для всех LLM-профилей (по умолчанию из config/models.yaml: qwen2.5:7b-instruct)
+#   LLM_THINK=false      выключить «рассуждения» у моделей, где они есть (gemma4, qwen3)
+#   OLLAMA_URL           внешняя Ollama вместо контейнера (см. compose.host-ollama.yaml)
+#
+# Бюджет стенда 8 ядер / 16 ГБ: ollama — основная нагрузка (cpuset "2-7", 9 ГБ под 7b q4),
+# languagetool ~1.5 ГБ, ai-service ~2-3 ГБ с голосом (whisper small + silero).
+
+# якоря YAML не видны между файлами — свой x-logging (как в корневом compose)
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "20m", max-file: "5"}
+
+services:
+  ai-service:
+    build:
+      context: ai-service
+      args:
+        WITH_VOICE: ${AI_WITH_VOICE:-1}
+    image: lct112/ai-service:${GOCORE_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      ollama: {condition: service_started}
+      languagetool: {condition: service_started}
+    environment:
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token}
+      GO_CORE_URL: http://go-core:8080
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      LANGUAGETOOL_URL: http://languagetool:8010
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_THINK: ${LLM_THINK:-}
+      TTS_DIR: /data/tts
+      CPU_THREADS: ${AI_CPU_THREADS:-4}
+      DIALOG_MAX_WAITING: ${DIALOG_MAX_WAITING:-8}
+      DIALOG_DEADLINE_SEC: ${DIALOG_DEADLINE_SEC:-18}
+      LOG_LEVEL: ${AI_LOG_LEVEL:-info}
+    volumes:
+      - tts_cache:/data/tts
+    mem_limit: 4g
+    # cpuset: "2-7"
+    logging: *logging
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_MAX_LOADED_MODELS: "1"     # одна LLM в памяти (контракт: полоса LLM одна)
+      OLLAMA_NUM_PARALLEL: "1"          # поднимать по итогам bench (батчинг ходов диалога)
+    volumes:
+      - ollama_models:/root/.ollama     # веса переживают пересоздание контейнера; на стенд — tar этого volume
+    mem_limit: 9g
+    # cpuset: "2-7"
+    logging: *logging
+
+  # Одноразовая загрузка модели (нужен интернет один раз):
+  #   docker compose -f docker-compose.yml -f ai-service/compose.ai.yaml --profile pull run --rm ollama-pull
+  ollama-pull:
+    profiles: ["pull"]
+    image: ollama/ollama:latest
+    depends_on: [ollama]
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama", "pull", "${LLM_MODEL:-qwen2.5:7b-instruct}"]
+    logging: *logging
+
+  languagetool:
+    image: erikvl87/languagetool:latest
+    restart: unless-stopped
+    environment:
+      Java_Xms: 256m
+      Java_Xmx: 1g
+    mem_limit: 1536m
+    logging: *logging
+
+volumes:
+  ollama_models:

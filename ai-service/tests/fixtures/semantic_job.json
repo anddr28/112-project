@@ -1,0 +1,81 @@
+{
+  "schema_version": "1",
+  "request_id": "018f6b2a-7c1e-7f00-a000-000000000001",
+  "attempt_id": "018f6b2a-7c1e-7f00-b000-000000000002",
+  "priority": 3,
+  "profile": "eval_fast",
+  "mode": "cards",
+  "scenario_context": {
+    "category": {
+      "code": "2.3.1",
+      "name": "Пожар в жилом доме",
+      "path": [
+        "Пожары",
+        "Пожар в здании"
+      ]
+    },
+    "difficulty": 2
+  },
+  "call_script": {
+    "caller": {
+      "name": "Мария",
+      "role": "соседка",
+      "emotional_state": "паника"
+    },
+    "address": {
+      "raw": "Ленина 14, подъезд 3, 5 этаж"
+    },
+    "key_facts": [
+      "дым из квартиры на 5 этаже",
+      "подъезд 3",
+      "в квартире может быть пожилой человек"
+    ],
+    "turns": [
+      {
+        "speaker": "caller",
+        "text": "Алло! У нас дым из квартиры идёт, Ленина 14, третий подъезд!"
+      }
+    ]
+  },
+  "etalon": {
+    "card": {
+      "category_code": "2.3.1",
+      "address": {
+        "raw": "ул. Ленина, д. 14",
+        "street": "Ленина",
+        "house": "14",
+        "entrance": "3",
+        "floor": "5"
+      },
+      "casualties": {
+        "trapped": 1
+      },
+      "services_to_notify": [
+        "01",
+        "03"
+      ],
+      "description": "Задымление в квартире на 5 этаже, внутри возможно находится пожилой человек"
+    },
+    "scoring": {
+      "required_facts": [
+        "задымление",
+        "5 этаж",
+        "возможен человек в квартире"
+      ],
+      "forbidden_facts": [
+        "открытое пламя"
+      ]
+    }
+  },
+  "answer": {
+    "card": {
+      "description": "дым из кв на 5 этаже дома 14 по ленина, внутри вроде дедушка"
+    }
+  },
+  "free_text_fields": [
+    "description"
+  ],
+  "options": {
+    "lang": "ru"
+  }
+}

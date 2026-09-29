@@ -59,6 +59,11 @@ func LessonSettingsToPublic(s model.LessonSettings) public.LessonSettings {
 		AllowReplay:     s.AllowReplay,
 		Voice:           VoiceToPublic(s.Voice),
 	}
+	cs := public.CardSource(s.CardSource)
+	if !cs.Valid() {
+		cs = public.CardSourceMixed
+	}
+	out.CardSource = &cs
 	out.Weights.Fields = float32(s.Weights.Fields)
 	out.Weights.Semantic = float32(s.Weights.Semantic)
 	out.Weights.Grammar = float32(s.Weights.Grammar)

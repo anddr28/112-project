@@ -1,0 +1,59 @@
+[project]
+name = "lct-ai-service"
+version = "1.1.0"
+description = "AI-сервис тренажёра операторов 112/ДДС: оценка ответов, ИИ-заявитель, генерация сценариев, STT/TTS"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3",
+    "python-multipart>=0.0.9",
+    "pyyaml>=6",
+    "num2words>=0.5.13",
+]
+
+[project.optional-dependencies]
+# Голосовой контур: ставится в образ build-arg'ом WITH_VOICE=1. torch — CPU-колесо
+# (ставится отдельно из download.pytorch.org/whl/cpu, см. Dockerfile), здесь не указан,
+# чтобы uv/pip не притащили CUDA-сборку на 2+ ГБ.
+voice = [
+    "faster-whisper>=1.0.3",
+    "av>=12",
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "jsonschema>=4.23",
+    "referencing>=0.35",
+    # закреплено: от версии зависит вывод make generate-python (contracts-check)
+    "datamodel-code-generator[http]==0.83.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ai_service"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["ai_service/gen"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+# RUF001-003: кириллица в строках и комментариях — норма для проекта (не «похожие символы»)
+# ASYNC109: таймауты в async-функциях — осознанно (дедлайны хода диалога и вызовов движков)
+ignore = ["RUF001", "RUF002", "RUF003", "B008", "ASYNC109", "SIM108", "SIM905"]

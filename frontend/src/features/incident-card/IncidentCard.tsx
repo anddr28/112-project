@@ -452,7 +452,7 @@ export function IncidentCard({
             <div className="arm-bottom__label">
               <span className="arm-autosave">
                 <span className={cls('arm-autosave__dot', `arm-autosave__dot--${saveState}`)} />
-                {saveState === 'saving' ? 'Сохранение…' : saveState === 'saved' ? 'Черновик сохранён' : saveState === 'error' ? 'Ошибка сохранения' : 'Черновик'}
+                {saveState === 'saving' ? 'Сохранение…' : saveState === 'saved' ? 'Черновик сохранён' : saveState === 'offline' ? 'Нет связи — сохранено на устройстве' : saveState === 'error' ? 'Ошибка сохранения' : 'Черновик'}
               </span>
             </div>
 

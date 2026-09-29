@@ -34,11 +34,18 @@
 #     норматив, статусы реагирования с комментариями, текст действия. Новое:
 #     Attempt.actingService, Scoring.reaction (ReactionExpectation), ограничения
 #     эндпоинтов служб/черновика/сдачи в ракурсе dds (описаны у эндпоинтов).
+#   * v1.4 (аддитивно, закрытие ТЗ к сдаче): аналитика группы — тепловая карта ошибок,
+#     динамика, инсайты по типичным ошибкам (GET /analytics/overview); справочная база и
+#     методматериалы с загрузкой файлов (/materials*); системный журнал для администратора
+#     (GET /admin/logs); PDF-сертификат обучающегося (GET /users/{id}/certificate);
+#     пакетный импорт/экспорт сценариев (/scenarios/import|export); карточка обучающегося
+#     как сценарий (POST /attempts/{id}/to-scenario) и источник карточек занятия
+#     (LessonSettings.cardSource: generated | student | mixed).
 # ============================================================================
 openapi: 3.0.3
 info:
   title: LCT go-core — public API for frontend
-  version: "1.3"
+  version: "1.4"
 servers:
   - url: /api/v1
 security:
@@ -54,6 +61,8 @@ tags:
   - {name: dialogue, description: голосовой/интерактивный разговор с заявителем}
   - {name: evaluation, description: 'результаты, ревью, обратная связь'}
   - {name: admin, description: 'здоровье контура, настройки'}
+  - {name: analytics, description: 'v1.4: аналитика группы, инсайты'}
+  - {name: materials, description: 'v1.4: справочная база, методматериалы'}
   - {name: ws, description: WebSocket-каналы (описаны как GET с x-websocket)}
 
 paths:
@@ -1346,6 +1355,231 @@ paths:
           description: Копирование уже идёт
           content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
 
+  # ============================================================ v1.4
+  /analytics/overview:
+    get:
+      tags: [analytics]
+      operationId: analyticsOverview
+      summary: '[teacher][admin] Аналитика группы (v1.4): сводка, тепловая карта ошибок, динамика, инсайты'
+      description: >
+        Считается по оценённым попыткам (attempts.status = evaluated) занятий преподавателя
+        (админ — всех занятий). Фильтры сужают выборку; без фильтров — последние `days` дней.
+        Инсайты — детерминированный разбор результатов ИИ-оценки (слои fields/semantic/grammar/
+        timing/dialogue): типичные пропуски полей, забытые факты, повторяющиеся правила
+        грамматики, выход за норматив — с долей группы и рекомендацией преподавателю.
+        Ответ ≤ 30 с (ТЗ) — на практике агрегаты одним запросом на раздел.
+      parameters:
+        - {name: lessonId, in: query, schema: {type: string, format: uuid}}
+        - {name: studentId, in: query, schema: {type: string, format: uuid}}
+        - {name: categoryId, in: query, schema: {type: string}}
+        - {name: days, in: query, schema: {type: integer, minimum: 1, maximum: 365, default: 30}}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/AnalyticsOverview'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /materials:
+    get:
+      tags: [materials]
+      operationId: listMaterials
+      summary: '[teacher][student][admin] Справочная база: методматериалы и инструкции (v1.4)'
+      parameters:
+        - {name: category, in: query, schema: {type: string}}
+        - {name: q, in: query, schema: {type: string, maxLength: 100}, description: поиск по названию/описанию}
+      responses:
+        '200':
+          description: OK (без content — только метаданные)
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Material'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [materials]
+      operationId: createMaterial
+      summary: '[teacher][admin] Добавить материал: текст (Markdown) и/или файл (PDF, DOCX, XLSX, MP3, WAV, PNG, JPG, TXT, XML, JSON; до 20 МБ)'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string, minLength: 3, maxLength: 200}
+                description: {type: string, maxLength: 2000}
+                category: {type: string, maxLength: 100, description: 'раздел: «Памятка АРМ-112», «Регламенты», «Аудио вызовов», …'}
+                content: {type: string, maxLength: 200000, description: текст материала (Markdown)}
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: Создан
+          content: {application/json: {schema: {$ref: '#/components/schemas/Material'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '413':
+          description: Файл больше 20 МБ (code=validation)
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /materials/{materialId}:
+    get:
+      tags: [materials]
+      operationId: getMaterial
+      summary: '[teacher][student][admin] Материал с текстом'
+      parameters:
+        - {$ref: '#/components/parameters/materialId'}
+      responses:
+        '200':
+          description: OK
+          content: {application/json: {schema: {$ref: '#/components/schemas/Material'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [materials]
+      operationId: deleteMaterial
+      summary: '[teacher-автор][admin] Удалить материал (аудит material.delete; системные материалы — 409)'
+      parameters:
+        - {$ref: '#/components/parameters/materialId'}
+      responses:
+        '204': {description: Удалён}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Системный материал (из поставки) не удаляется
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /materials/{materialId}/file:
+    get:
+      tags: [materials]
+      operationId: downloadMaterialFile
+      summary: '[teacher][student][admin] Файл материала (Content-Disposition: attachment; inline для PDF/аудио/изображений)'
+      parameters:
+        - {$ref: '#/components/parameters/materialId'}
+      responses:
+        '200':
+          description: Файл
+          content:
+            application/octet-stream: {schema: {type: string, format: binary}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /admin/logs:
+    get:
+      tags: [admin]
+      operationId: listLogs
+      summary: '[admin] Системный журнал go-core (v1.4): последние записи из кольцевого буфера, новые сверху'
+      description: >
+        Буфер в памяти (последние 5000 записей уровня info и выше); полный журнал — stdout
+        контейнера в JSON (docker logs). level=error — отчёт об ошибках и сбоях.
+      parameters:
+        - {name: level, in: query, schema: {type: string, enum: [debug, info, warn, error]}, description: минимальный уровень}
+        - {name: q, in: query, schema: {type: string, maxLength: 100}, description: подстрока в сообщении/атрибутах}
+        - {name: limit, in: query, schema: {type: integer, default: 200, maximum: 1000}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/LogEntry'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /users/{userId}/certificate:
+    get:
+      tags: [users]
+      operationId: userCertificate
+      summary: '[teacher][student-сам] PDF-сертификат о прохождении подготовки (v1.4, ТЗ: PDF для сертификатов)'
+      description: >
+        Уровень, число оценённых карточек, средний балл, доля зачётов, категории с результатами.
+        Нет ни одной оценённой попытки — 409 conflict.
+      parameters:
+        - {$ref: '#/components/parameters/userId'}
+        - {name: tz, in: query, schema: {type: string, maxLength: 64}, description: 'часовой пояс IANA для даты'}
+      responses:
+        '200':
+          description: PDF (Content-Disposition attachment)
+          content:
+            application/pdf: {schema: {type: string, format: binary}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Нет оценённых попыток
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
+  /scenarios/export:
+    get:
+      tags: [scenarios]
+      operationId: exportScenarios
+      summary: '[teacher][admin] Выгрузить сценарии пакетом (JSON ScenarioBundle, v1.4)'
+      parameters:
+        - {name: ids, in: query, description: 'uuid через запятую; нет — все утверждённые', schema: {type: string}}
+      responses:
+        '200':
+          description: Пакет (Content-Disposition attachment)
+          content: {application/json: {schema: {$ref: '#/components/schemas/ScenarioBundle'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /scenarios/import:
+    post:
+      tags: [scenarios]
+      operationId: importScenarios
+      summary: '[teacher][admin] Пакетный импорт сценариев (ТЗ: механизм импорта обновлений, ручной режим)'
+      description: >
+        Каждый сценарий создаётся заново (новый id, status=draft, source из пакета или manual),
+        эталон — версия 1. Ошибки по отдельным элементам не отменяют остальные: ответ
+        перечисляет созданные и отклонённые (index + message). Аудит scenario.import.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ScenarioBundle'}
+      responses:
+        '200':
+          description: Результат импорта
+          content: {application/json: {schema: {$ref: '#/components/schemas/ScenarioImportResult'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /attempts/{attemptId}/to-scenario:
+    post:
+      tags: [scenarios]
+      operationId: attemptToScenario
+      summary: '[teacher] Сделать сценарий из карточки обучающегося (v1.4, ТЗ: «сформированные обучающимися карточки»)'
+      description: >
+        Только для оценённой попытки режима cards (ракурс operator112) занятия преподавателя.
+        Создаётся сценарий source=student, status=draft: карточка обучающегося — эталон v1
+        (etalonDraft), легенда и категория — из исходного сценария. Преподаватель правит и
+        утверждает как обычно; затем сценарий доступен для «действий с карточками».
+        Повтор для той же попытки — 409 с details.scenarioId.
+      parameters:
+        - {$ref: '#/components/parameters/attemptId'}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string, maxLength: 200}
+      responses:
+        '201':
+          description: Создан
+          content: {application/json: {schema: {$ref: '#/components/schemas/Scenario'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Попытка не оценена / не режим cards / сценарий уже создан (details.scenarioId)
+          content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}
+
   # ====================================================================== ws
   /ws/lessons/{lessonId}/monitor:
     get:
@@ -1394,6 +1628,7 @@ components:
     lessonId: {name: lessonId, in: path, required: true, schema: {type: string, format: uuid}}
     attemptId: {name: attemptId, in: path, required: true, schema: {type: string, format: uuid}}
     serviceId: {name: serviceId, in: path, required: true, schema: {type: string}}
+    materialId: {name: materialId, in: path, required: true, schema: {type: string, format: uuid}}
     cursor:
       name: cursor
       in: query
@@ -2081,6 +2316,17 @@ components:
         cardsPerStudent: {type: integer, minimum: 1}
         allowReplay: {type: boolean}
         voice: {$ref: '#/components/schemas/VoiceSettings'}
+        cardSource: {$ref: '#/components/schemas/CardSource'}
+
+    CardSource:
+      type: string
+      enum: [generated, student, mixed]
+      description: >
+        v1.4 (ТЗ, «действия с карточками»): из каких карточек собран пул занятия —
+        сгенерированных системой (source ≠ student), сформированных обучающимися
+        (source = student) или смешанный. Сервер проверяет пул при создании занятия
+        (422 details.scenarioIds, если сценарий не подходит под выбранный источник).
+        Нет — mixed (как раньше).
 
     LessonParticipant:
       type: object
@@ -2142,6 +2388,7 @@ components:
           additionalProperties: {type: number}
           description: переопределение весов; иначе — из default-settings
         voice: {$ref: '#/components/schemas/VoiceSettings'}
+        cardSource: {$ref: '#/components/schemas/CardSource'}
 
     # ----------------------------------------------------------- attempts
     Attempt:
@@ -2673,6 +2920,243 @@ components:
         value: {}
         description: {type: string}
         updatedAt: {type: string, format: date-time}
+
+    # ------------------------------------------------------------- v1.4
+    AnalyticsOverview:
+      type: object
+      required: [generatedAt, scope, summary, layers, heatmap, trend, topFieldErrors, topMissingFacts, topGrammarRules, students, categories, insights]
+      properties:
+        generatedAt: {type: string, format: date-time}
+        scope:
+          type: object
+          required: [days]
+          properties:
+            days: {type: integer}
+            lessonId: {type: string, format: uuid}
+            studentId: {type: string, format: uuid}
+            categoryId: {type: string}
+        summary:
+          type: object
+          required: [attempts, students, avgScore, passRatePct, avgTimeMs, withinNormPct, needsReview]
+          properties:
+            attempts: {type: integer}
+            students: {type: integer}
+            avgScore: {type: number}
+            passRatePct: {type: number}
+            avgTimeMs: {type: integer}
+            avgReactionMs: {type: integer}
+            withinNormPct: {type: number}
+            needsReview: {type: integer}
+        layers:
+          type: array
+          description: средний балл по слоям оценки (только у попыток, где слой был оценён)
+          items:
+            type: object
+            required: [layer, avgScore, attempts]
+            properties:
+              layer: {type: string, enum: [fields, semantic, grammar, timing, dialogue]}
+              avgScore: {type: number}
+              attempts: {type: integer}
+        heatmap:
+          type: object
+          description: 'тепловая карта ошибок: строки — категории происшествий, столбцы — поля карточки; cells[i][j] — число ошибок'
+          required: [rows, cols, cells]
+          properties:
+            rows:
+              type: array
+              items:
+                type: object
+                required: [id, label, attempts]
+                properties:
+                  id: {type: string}
+                  label: {type: string}
+                  attempts: {type: integer}
+            cols:
+              type: array
+              items:
+                type: object
+                required: [id, label]
+                properties:
+                  id: {type: string}
+                  label: {type: string}
+            cells:
+              type: array
+              items:
+                type: array
+                items: {type: integer}
+        trend:
+          type: array
+          description: по дням (часовой пояс сервера — UTC), только дни с попытками
+          items:
+            type: object
+            required: [date, attempts, avgScore, passRatePct]
+            properties:
+              date: {type: string, format: date}
+              attempts: {type: integer}
+              avgScore: {type: number}
+              passRatePct: {type: number}
+              avgTimeMs: {type: integer}
+        topFieldErrors:
+          type: array
+          items:
+            type: object
+            required: [field, label, kind, count, sharePct]
+            properties:
+              field: {type: string}
+              label: {type: string}
+              kind: {type: string, enum: [missing, wrong, extra]}
+              count: {type: integer}
+              sharePct: {type: number, description: доля попыток с этой ошибкой}
+        topMissingFacts:
+          type: array
+          description: факты, которые чаще всего не отражены (слой semantic)
+          items:
+            type: object
+            required: [fact, count, sharePct]
+            properties:
+              fact: {type: string}
+              count: {type: integer}
+              sharePct: {type: number}
+        topGrammarRules:
+          type: array
+          items:
+            type: object
+            required: [rule, message, count]
+            properties:
+              rule: {type: string}
+              message: {type: string}
+              count: {type: integer}
+              example: {type: string}
+        students:
+          type: array
+          items:
+            type: object
+            required: [userId, name, attempts, avgScore, passRatePct]
+            properties:
+              userId: {type: string, format: uuid}
+              name: {type: string}
+              attempts: {type: integer}
+              avgScore: {type: number}
+              passRatePct: {type: number}
+              avgTimeMs: {type: integer}
+              weakestLayer: {type: string}
+        categories:
+          type: array
+          items:
+            type: object
+            required: [categoryId, categoryName, attempts, avgScore, passRatePct]
+            properties:
+              categoryId: {type: string}
+              categoryName: {type: string}
+              attempts: {type: integer}
+              avgScore: {type: number}
+              passRatePct: {type: number}
+              avgTimeMs: {type: integer}
+        insights:
+          type: array
+          items: {$ref: '#/components/schemas/Insight'}
+
+    Insight:
+      type: object
+      description: Вывод по типичным ошибкам группы с рекомендацией (v1.4)
+      required: [id, severity, kind, title, body]
+      properties:
+        id: {type: string}
+        severity: {type: string, enum: [info, warning, critical]}
+        kind: {type: string, description: 'weak_field | missing_fact | grammar_pattern | slow_timing | weak_category | weak_layer | dialogue_pattern | student_at_risk | general (строка, не enum: значения пересекаются с Recommendation.kind)'}
+        title: {type: string}
+        body: {type: string, description: 'что происходит + что сделать преподавателю'}
+        metric: {type: number, description: 'ключевая величина (доля %, балл, мс)'}
+        affectedStudents:
+          type: array
+          items: {type: string, description: ФИО}
+        evidence:
+          type: array
+          items: {type: string}
+
+    Material:
+      type: object
+      required: [id, title, category, hasFile, system, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        description: {type: string}
+        category: {type: string}
+        content: {type: string, description: 'Markdown; только в GET /materials/{id}'}
+        hasFile: {type: boolean}
+        fileName: {type: string}
+        mimeType: {type: string}
+        sizeBytes: {type: integer, format: int64}
+        system: {type: boolean, description: из поставки (не удаляется)}
+        authorId: {type: string, format: uuid}
+        authorName: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    LogEntry:
+      type: object
+      required: [at, level, message]
+      properties:
+        at: {type: string, format: date-time}
+        level: {type: string, enum: [debug, info, warn, error]}
+        message: {type: string}
+        attrs: {type: object, additionalProperties: true}
+
+    ScenarioBundle:
+      type: object
+      required: [format, scenarios]
+      properties:
+        format: {type: string, enum: [lct112.scenarios.v1]}
+        exportedAt: {type: string, format: date-time}
+        scenarios:
+          type: array
+          maxItems: 500
+          items: {$ref: '#/components/schemas/ScenarioBundleItem'}
+
+    ScenarioBundleItem:
+      type: object
+      description: переносимое содержание сценария (без id, статусов и авторов)
+      required: [title, categoryId, difficulty, mode, callScript, etalonDraft]
+      properties:
+        title: {type: string}
+        categoryId: {type: string}
+        difficulty: {$ref: '#/components/schemas/Difficulty'}
+        mode: {type: string, enum: [cards, card_actions, both]}
+        source: {$ref: '#/components/schemas/ScenarioSource'}
+        callScript: {$ref: '#/components/schemas/CallScript'}
+        etalonCard: {$ref: '#/components/schemas/IncidentCard'}
+        etalonDraft: {$ref: '#/components/schemas/IncidentCardDraft'}
+        scoring: {$ref: '#/components/schemas/Scoring'}
+        requiredFields:
+          type: array
+          items: {type: string}
+        expectedActions:
+          type: array
+          items: {$ref: '#/components/schemas/ExpectedAction'}
+        expectedDialogue: {$ref: '#/components/schemas/ExpectedDialogue'}
+        notesForTeacher: {type: string}
+
+    ScenarioImportResult:
+      type: object
+      required: [created, rejected]
+      properties:
+        created:
+          type: array
+          items:
+            type: object
+            required: [index, scenarioId, title]
+            properties:
+              index: {type: integer}
+              scenarioId: {type: string, format: uuid}
+              title: {type: string}
+        rejected:
+          type: array
+          items:
+            type: object
+            required: [index, message]
+            properties:
+              index: {type: integer}
+              title: {type: string}
+              message: {type: string}
 
     # ----------------------------------------------------------------- ws
     MonitorMessage:

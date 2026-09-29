@@ -34,6 +34,9 @@ var allRoutes = []route{
 	{http.MethodPost, "/scenarios/" + uuid.NewString() + "/reject"},
 	{http.MethodPost, "/scenarios/" + uuid.NewString() + "/versions"},
 	{http.MethodPost, "/scenarios/" + uuid.NewString() + "/tts-preview"},
+	{http.MethodGet, "/scenarios/export"},
+	{http.MethodPost, "/scenarios/import"},
+	{http.MethodPost, "/attempts/" + uuid.NewString() + "/to-scenario"},
 }
 
 func TestRoutesRegistered(t *testing.T) {
@@ -46,6 +49,7 @@ func TestRoutesRegistered(t *testing.T) {
 		"GET /scenarios", "POST /scenarios", "POST /scenarios/generate", "GET /scenarios/{scenarioId}",
 		"PATCH /scenarios/{scenarioId}", "POST /scenarios/{scenarioId}/approve", "POST /scenarios/{scenarioId}/reject",
 		"POST /scenarios/{scenarioId}/versions", "POST /scenarios/{scenarioId}/tts-preview",
+		"GET /scenarios/export", "POST /scenarios/import", "POST /attempts/{attemptId}/to-scenario",
 	}
 	slices.Sort(got)
 	slices.Sort(want)

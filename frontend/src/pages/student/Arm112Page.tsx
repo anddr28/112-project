@@ -6,8 +6,15 @@ import { IncidentCard } from '../../features/incident-card/IncidentCard';
 import { DdsWorkspace } from '../../features/dds/DdsWorkspace';
 import { ddsDecision, ownService } from '../../features/dds/ddsDecision';
 import { useAttemptTimer, useAutosave, useEventLog } from '../../features/attempt-runtime/useAttemptRuntime';
+import { isRetriable, outboxFor } from '../../features/attempt-runtime/outbox';
+import { ConnectionBanner } from '../../components/ConnectionBanner';
+import { useConnectivity } from '../../shared/api/connectivity';
+import { useRealtimeChannel } from '../../shared/realtime/useRealtimeChannel';
 import { emptyCard } from '../../shared/utils/card';
-import type { Attempt, IncidentCardDraft, StudentCallScript, User } from '../../shared/types';
+import type { Attempt, IncidentCardDraft, StudentCallScript, StudentMessage, User } from '../../shared/types';
+
+/** Сдача не прошла из-за связи: карточка остаётся на экране, данные — в очереди. */
+const OFFLINE_SUBMIT = 'Нет связи с сервером — карточка не отправлена. Всё введённое сохранено на этом устройстве; нажмите «Сохранить» ещё раз, когда связь восстановится.';
 
 export function Arm112Page() {
   const { attemptId = '' } = useParams();
@@ -30,6 +37,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [card, setCard] = useState<IncidentCardDraft>(() => emptyCard());
   const [submitting, setSubmitting] = useState(false);
+  const [submitNotice, setSubmitNotice] = useState<string | null>(null);
 
   const attempt = state.phase === 'ready' ? state.attempt : null;
 
@@ -47,7 +55,10 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     ])
       .then(([a, draft, callScript]) => {
         if (cancelled) return;
-        setCard(draft);
+        // Черновик, не дошедший до сервера в прошлый раз (обрыв, F5), новее серверного.
+        const box = outboxFor(attemptId);
+        setCard(box.pendingDraft() ?? draft);
+        void box.flush();
         setState({ phase: 'ready', attempt: a, callScript });
       })
       .catch((e: unknown) => {
@@ -59,6 +70,21 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
   }, [attemptId]);
 
   const dds = attempt?.perspective === 'dds';
+
+  /*
+   * Канал попытки: преподаватель завершил занятие — карточка закрыта сервером
+   * (незавершённые попытки → expired), работать дальше нельзя. Отложенное
+   * досылаем и уходим на экран результата.
+   */
+  useRealtimeChannel<StudentMessage>({
+    enabled: attempt?.status === 'in_progress',
+    channelKey: attemptId,
+    connect: (_since, handlers) => api.realtime.attempt(attemptId, handlers),
+    onMessage: (message) => {
+      if (message.type !== 'lessonFinished') return;
+      void flush().finally(() => navigate(`/student/attempts/${attemptId}/result`, { replace: true }));
+    },
+  });
 
   /** Перечитывает черновик после операций, меняющих состав или статусы служб. */
   const reloadDraft = useCallback(() => {
@@ -88,14 +114,34 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
         : 'Завершить работу с карточкой?';
     if (!window.confirm(question)) return;
 
+    await deliverAndSubmit(() => api.attempts.submit(attemptId, card, card.actionsTaken), 'Не удалось завершить работу с карточкой');
+  }
+
+  /**
+   * Сдача: сначала отложенные события, затем черновик — хронология не должна
+   * потерять последнее действие. Без связи сдача откладывается, а не ломает
+   * экран: карточка остаётся, данные ждут в очереди на устройстве.
+   */
+  async function deliverAndSubmit(send: () => Promise<unknown>, failure: string) {
     setSubmitting(true);
-    await flush();
-    await saveNow();
+    setSubmitNotice(null);
+    const delivered = (await flush()) && (await saveNow());
+    if (!delivered && useConnectivity.getState().offline) {
+      setSubmitNotice(OFFLINE_SUBMIT);
+      setSubmitting(false);
+      return;
+    }
     try {
-      await api.attempts.submit(attemptId, card, card.actionsTaken);
+      await send();
+      outboxFor(attemptId).clear();
       navigate(`/student/attempts/${attemptId}/result`, { replace: true });
     } catch (e) {
-      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Не удалось завершить работу с карточкой' });
+      if (isRetriable(e)) {
+        setSubmitNotice(OFFLINE_SUBMIT);
+        setSubmitting(false);
+        return;
+      }
+      setState({ phase: 'error', message: e instanceof Error ? e.message : failure });
       setSubmitting(false);
     }
   }
@@ -121,18 +167,7 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
         : 'Оповестить службы и сохранить карточку?';
     if (!window.confirm(question)) return;
 
-    setSubmitting(true);
-    // Сначала отложенные события, затем черновик: хронология не должна
-    // потерять последнее действие перед сохранением карточки.
-    await flush();
-    await saveNow();
-    try {
-      await api.attempts.submit(attemptId, card);
-      navigate(`/student/attempts/${attemptId}/result`, { replace: true });
-    } catch (e) {
-      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Не удалось сохранить карточку' });
-      setSubmitting(false);
-    }
+    await deliverAndSubmit(() => api.attempts.submit(attemptId, card), 'Не удалось сохранить карточку');
   }
 
   if (state.phase === 'loading') {
@@ -168,46 +203,54 @@ function Arm112Workspace({ attemptId, user }: { attemptId: string; user: User })
     return <Navigate to={`/student/attempts/${attemptId}/result`} replace />;
   }
 
+  const banner = <ConnectionBanner notice={submitNotice} onDismiss={() => setSubmitNotice(null)} />;
+
   if (dds) {
     return (
-      <DdsWorkspace
+      <>
+        {banner}
+        <DdsWorkspace
+          attempt={state.attempt}
+          card={card}
+          elapsedMs={elapsedMs}
+          saveState={saveState}
+          savedAt={savedAt}
+          submitting={submitting}
+          onChange={setCard}
+          onFieldChange={logFieldChange}
+          onServicesChanged={reloadDraft}
+          onSubmit={() => void submitDds()}
+          onClose={() => void close()}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {banner}
+      <IncidentCard
         attempt={state.attempt}
+        user={user}
         card={card}
+        callScript={state.callScript}
         elapsedMs={elapsedMs}
+        exceeded={exceeded}
         saveState={saveState}
         savedAt={savedAt}
         submitting={submitting}
         onChange={setCard}
         onFieldChange={logFieldChange}
         onServicesChanged={reloadDraft}
-        onSubmit={() => void submitDds()}
+        onEvent={log}
+        onReplay={() => {
+          void api.attempts.replay(attemptId).catch(() => {});
+          log('replay');
+        }}
+        onSubmit={() => void submit()}
         onClose={() => void close()}
       />
-    );
-  }
-
-  return (
-    <IncidentCard
-      attempt={state.attempt}
-      user={user}
-      card={card}
-      callScript={state.callScript}
-      elapsedMs={elapsedMs}
-      exceeded={exceeded}
-      saveState={saveState}
-      savedAt={savedAt}
-      submitting={submitting}
-      onChange={setCard}
-      onFieldChange={logFieldChange}
-      onServicesChanged={reloadDraft}
-      onEvent={log}
-      onReplay={() => {
-        void api.attempts.replay(attemptId).catch(() => {});
-        log('replay');
-      }}
-      onSubmit={() => void submit()}
-      onClose={() => void close()}
-    />
+    </>
   );
 }
 

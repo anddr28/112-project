@@ -41,7 +41,7 @@ type Deps struct {
 	MaxConcurrent int
 }
 
-// Handlers — GET /lessons/{lessonId}/report.
+// Handlers — GET /lessons/{lessonId}/report и GET /users/{userId}/certificate.
 type Handlers struct {
 	pool *pgxpool.Pool
 	aud  core.Auditor
@@ -66,6 +66,8 @@ func New(d Deps) *Handlers {
 // Register — маршрут отчёта. Роль — преподаватель/админ; «своё ли занятие» — access.ManageLesson.
 func (h *Handlers) Register(r *httpx.Router) {
 	r.Handle("GET /lessons/{lessonId}/report", httpx.Roles(core.RoleTeacher, core.RoleAdmin), h.report)
+	// v1.4: сертификат обучающегося (сам, преподаватель его групп/занятий, админ).
+	r.Handle("GET /users/{userId}/certificate", httpx.Authenticated, h.certificate)
 }
 
 // Форматы и их MIME (контракт lessonReport).

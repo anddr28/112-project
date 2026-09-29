@@ -1,0 +1,15 @@
+# Вариант «Ollama уже запущена на хосте» (dev-машина с GPU/Metal, общий кэш моделей):
+# контейнер ollama не поднимается, ai-service ходит на хост.
+#
+#   LLM_MODEL=gemma4:12b LLM_THINK=false docker compose -f docker-compose.yml \
+#     -f ai-service/compose.ai.yaml -f ai-service/compose.host-ollama.yaml up -d --build
+services:
+  ollama:
+    profiles: ["container-ollama"]   # не стартует без явного --profile
+  ai-service:
+    depends_on: !override
+      languagetool: {condition: service_started}
+    environment:
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

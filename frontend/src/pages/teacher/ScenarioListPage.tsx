@@ -5,7 +5,8 @@ import { useAsync } from '../../shared/api/useAsync';
 import { Badge, Card, DifficultyBadge, ErrorState, Field, Loading, Modal, ScenarioStatusBadge } from '../../components/ui';
 import { groupByVersions, scenarioInUse, scenarioLessonsCount, versionNo } from '../../features/scenario/versioning';
 import { formatDate } from '../../shared/utils/time';
-import type { AiJob, Difficulty } from '../../shared/types';
+import { saveJson } from '../../shared/utils/download';
+import type { AiJob, Difficulty, ScenarioBundle, ScenarioImportResult } from '../../shared/types';
 
 /** Интервал опроса фоновой задачи генерации. */
 const JOB_POLL_MS = 1500;
@@ -40,6 +41,11 @@ export function ScenarioListPage() {
   const [creating, setCreating] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [imported, setImported] = useState<ScenarioImportResult | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   if (scenarios.loading) return <Loading />;
   if (scenarios.error) return <ErrorState text={scenarios.error} onRetry={scenarios.reload} />;
@@ -52,6 +58,44 @@ export function ScenarioListPage() {
   );
   // Версии одного сценария идут подряд, чтобы v1 и v2 не выглядели разными сценариями.
   const rows = groupByVersions(list, all);
+  const visibleIds = rows.map((r) => r.scenario.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
+
+  /** Выгрузка пакетом (v1.4): выбранные или, если ничего не выбрано, все подтверждённые. */
+  async function exportBundle() {
+    setTransferBusy(true);
+    setTransferError(null);
+    try {
+      const bundle = await api.scenarios.exportBundle(selected.length ? selected : undefined);
+      saveJson(bundle, `scenarios-${new Date().toISOString().slice(0, 10)}.json`);
+    } catch (e) {
+      setTransferError(e instanceof Error ? e.message : 'Не удалось выгрузить сценарии');
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
+  /** Импорт пакета: файл читается в браузере, разбор и проверка элементов — на сервере. */
+  async function importFile(file: File) {
+    setTransferBusy(true);
+    setTransferError(null);
+    try {
+      let bundle: ScenarioBundle;
+      try {
+        bundle = JSON.parse(await file.text()) as ScenarioBundle;
+      } catch {
+        throw new Error('Файл не является JSON — выберите пакет, выгруженный кнопкой «Выгрузить»');
+      }
+      const result = await api.scenarios.importBundle(bundle);
+      setImported(result);
+      scenarios.reload();
+    } catch (e) {
+      setTransferError(e instanceof Error ? e.message : 'Не удалось импортировать сценарии');
+    } finally {
+      setTransferBusy(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  }
 
   return (
     <>
@@ -63,11 +107,29 @@ export function ScenarioListPage() {
           </div>
         </div>
         <div className="page-head__actions">
+          <button type="button" className="btn" onClick={() => void exportBundle()} disabled={transferBusy}>
+            {selected.length ? `Выгрузить выбранные (${selected.length})` : 'Выгрузить подтверждённые'}
+          </button>
+          <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={transferBusy}>
+            Импорт из файла
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importFile(file);
+            }}
+          />
           <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
             Создать сценарий
           </button>
         </div>
       </div>
+
+      {transferError && <p className="field__error" role="alert" style={{ marginBottom: 12 }}>{transferError}</p>}
 
       <Card
         title={`Найдено: ${list.length}`}
@@ -92,9 +154,21 @@ export function ScenarioListPage() {
         {list.length === 0 ? (
           <p className="muted small">Ничего не найдено. Измените фильтры или создайте сценарий.</p>
         ) : (
+          <div className="table-scroll">
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Выбрать все показанные сценарии"
+                    checked={allVisibleSelected}
+                    onChange={() =>
+                      setSelected(allVisibleSelected
+                        ? selected.filter((id) => !visibleIds.includes(id))
+                        : [...new Set([...selected, ...visibleIds])])}
+                  />
+                </th>
                 <th>Название</th><th>Категория</th><th>Сложность</th>
                 <th>Источник</th><th>Статус</th><th>В занятиях</th><th>Создан</th>
               </tr>
@@ -102,6 +176,14 @@ export function ScenarioListPage() {
             <tbody>
               {rows.map(({ scenario: s, grouped }) => (
                 <tr key={s.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Выбрать «${s.title}» для выгрузки`}
+                      checked={selected.includes(s.id)}
+                      onChange={() => setSelected(selected.includes(s.id) ? selected.filter((x) => x !== s.id) : [...selected, s.id])}
+                    />
+                  </td>
                   <td>
                     {grouped && versionNo(s) > 1 && <span className="dim" aria-hidden="true">↳ </span>}
                     <Link to={`/teacher/scenarios/${s.id}`}>{s.title}</Link>
@@ -119,11 +201,58 @@ export function ScenarioListPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 
       {creating && <CreateScenarioModal onClose={() => setCreating(false)} onDone={scenarios.reload} />}
+      {imported && <ImportResultModal result={imported} onClose={() => setImported(null)} />}
     </>
+  );
+}
+
+/** Итог импорта: созданные — ссылками на черновики, отклонённые — с причиной по номеру в пакете. */
+function ImportResultModal({ result, onClose }: { result: ScenarioImportResult; onClose: () => void }) {
+  return (
+    <Modal
+      title="Импорт сценариев"
+      wide
+      onClose={onClose}
+      footer={<button type="button" className="btn btn--primary" onClick={onClose}>Готово</button>}
+    >
+      <div className="stack">
+        <p>
+          Создано: <b>{result.created.length}</b> · отклонено: <b>{result.rejected.length}</b>.
+          {result.created.length > 0 && ' Новые сценарии — черновики: проверьте и подтвердите их перед выдачей.'}
+        </p>
+        {result.created.length > 0 && (
+          <div>
+            <div className="field__label" style={{ marginBottom: 4 }}>Созданы</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {result.created.map((c) => (
+                <li key={c.scenarioId}><Link to={`/teacher/scenarios/${c.scenarioId}`} onClick={onClose}>{c.title}</Link></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {result.rejected.length > 0 && (
+          <div className="table-scroll">
+            <table className="table">
+              <thead><tr><th className="num">№ в пакете</th><th>Сценарий</th><th>Причина</th></tr></thead>
+              <tbody>
+                {result.rejected.map((r) => (
+                  <tr key={r.index}>
+                    <td className="num">{r.index + 1}</td>
+                    <td>{r.title ?? '—'}</td>
+                    <td style={{ color: 'var(--u-danger)' }}>{r.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

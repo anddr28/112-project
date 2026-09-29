@@ -979,6 +979,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * [teacher][admin] Аналитика группы (v1.4): сводка, тепловая карта ошибок, динамика, инсайты
+         * @description Считается по оценённым попыткам (attempts.status = evaluated) занятий преподавателя (админ — всех занятий). Фильтры сужают выборку; без фильтров — последние `days` дней. Инсайты — детерминированный разбор результатов ИИ-оценки (слои fields/semantic/grammar/ timing/dialogue): типичные пропуски полей, забытые факты, повторяющиеся правила грамматики, выход за норматив — с долей группы и рекомендацией преподавателю. Ответ ≤ 30 с (ТЗ) — на практике агрегаты одним запросом на раздел.
+         */
+        get: operations["analyticsOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher][student][admin] Справочная база: методматериалы и инструкции (v1.4) */
+        get: operations["listMaterials"];
+        put?: never;
+        /** [teacher][admin] Добавить материал: текст (Markdown) и/или файл (PDF, DOCX, XLSX, MP3, WAV, PNG, JPG, TXT, XML, JSON; до 20 МБ) */
+        post: operations["createMaterial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/materials/{materialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher][student][admin] Материал с текстом */
+        get: operations["getMaterial"];
+        put?: never;
+        post?: never;
+        /** [teacher-автор][admin] Удалить материал (аудит material.delete; системные материалы — 409) */
+        delete: operations["deleteMaterial"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/materials/{materialId}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher][student][admin] Файл материала (Content-Disposition: attachment; inline для PDF/аудио/изображений) */
+        get: operations["downloadMaterialFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * [admin] Системный журнал go-core (v1.4): последние записи из кольцевого буфера, новые сверху
+         * @description Буфер в памяти (последние 5000 записей уровня info и выше); полный журнал — stdout контейнера в JSON (docker logs). level=error — отчёт об ошибках и сбоях.
+         */
+        get: operations["listLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * [teacher][student-сам] PDF-сертификат о прохождении подготовки (v1.4, ТЗ: PDF для сертификатов)
+         * @description Уровень, число оценённых карточек, средний балл, доля зачётов, категории с результатами. Нет ни одной оценённой попытки — 409 conflict.
+         */
+        get: operations["userCertificate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scenarios/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [teacher][admin] Выгрузить сценарии пакетом (JSON ScenarioBundle, v1.4) */
+        get: operations["exportScenarios"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scenarios/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [teacher][admin] Пакетный импорт сценариев (ТЗ: механизм импорта обновлений, ручной режим)
+         * @description Каждый сценарий создаётся заново (новый id, status=draft, source из пакета или manual), эталон — версия 1. Ошибки по отдельным элементам не отменяют остальные: ответ перечисляет созданные и отклонённые (index + message). Аудит scenario.import.
+         */
+        post: operations["importScenarios"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attempts/{attemptId}/to-scenario": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [teacher] Сделать сценарий из карточки обучающегося (v1.4, ТЗ: «сформированные обучающимися карточки»)
+         * @description Только для оценённой попытки режима cards (ракурс operator112) занятия преподавателя. Создаётся сценарий source=student, status=draft: карточка обучающегося — эталон v1 (etalonDraft), легенда и категория — из исходного сценария. Преподаватель правит и утверждает как обычно; затем сценарий доступен для «действий с карточками». Повтор для той же попытки — 409 с details.scenarioId.
+         */
+        post: operations["attemptToScenario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ws/lessons/{lessonId}/monitor": {
         parameters: {
             query?: never;
@@ -1520,7 +1690,13 @@ export interface components {
             cardsPerStudent: number;
             allowReplay: boolean;
             voice: components["schemas"]["VoiceSettings"];
+            cardSource?: components["schemas"]["CardSource"];
         };
+        /**
+         * @description v1.4 (ТЗ, «действия с карточками»): из каких карточек собран пул занятия — сгенерированных системой (source ≠ student), сформированных обучающимися (source = student) или смешанный. Сервер проверяет пул при создании занятия (422 details.scenarioIds, если сценарий не подходит под выбранный источник). Нет — mixed (как раньше).
+         * @enum {string}
+         */
+        CardSource: "generated" | "student" | "mixed";
         LessonParticipant: {
             /** Format: uuid */
             userId: string;
@@ -1572,6 +1748,7 @@ export interface components {
                 [key: string]: number;
             };
             voice?: components["schemas"]["VoiceSettings"];
+            cardSource?: components["schemas"]["CardSource"];
         };
         /** @description Попытка (карточка обучающегося). actingService (v1.3) — только в ракурсе dds: служба, за диспетчера которой работает обучающийся (профиль ДДС или основная служба карточки, если профиля нет). */
         Attempt: {
@@ -2007,6 +2184,180 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
+        AnalyticsOverview: {
+            /** Format: date-time */
+            generatedAt: string;
+            scope: {
+                days: number;
+                /** Format: uuid */
+                lessonId?: string;
+                /** Format: uuid */
+                studentId?: string;
+                categoryId?: string;
+            };
+            summary: {
+                attempts: number;
+                students: number;
+                avgScore: number;
+                passRatePct: number;
+                avgTimeMs: number;
+                avgReactionMs?: number;
+                withinNormPct: number;
+                needsReview: number;
+            };
+            /** @description средний балл по слоям оценки (только у попыток, где слой был оценён) */
+            layers: {
+                /** @enum {string} */
+                layer: "fields" | "semantic" | "grammar" | "timing" | "dialogue";
+                avgScore: number;
+                attempts: number;
+            }[];
+            /** @description тепловая карта ошибок: строки — категории происшествий, столбцы — поля карточки; cells[i][j] — число ошибок */
+            heatmap: {
+                rows: {
+                    id: string;
+                    label: string;
+                    attempts: number;
+                }[];
+                cols: {
+                    id: string;
+                    label: string;
+                }[];
+                cells: number[][];
+            };
+            /** @description по дням (часовой пояс сервера — UTC), только дни с попытками */
+            trend: {
+                /** Format: date */
+                date: string;
+                attempts: number;
+                avgScore: number;
+                passRatePct: number;
+                avgTimeMs?: number;
+            }[];
+            topFieldErrors: {
+                field: string;
+                label: string;
+                /** @enum {string} */
+                kind: "missing" | "wrong" | "extra";
+                count: number;
+                /** @description доля попыток с этой ошибкой */
+                sharePct: number;
+            }[];
+            /** @description факты, которые чаще всего не отражены (слой semantic) */
+            topMissingFacts: {
+                fact: string;
+                count: number;
+                sharePct: number;
+            }[];
+            topGrammarRules: {
+                rule: string;
+                message: string;
+                count: number;
+                example?: string;
+            }[];
+            students: {
+                /** Format: uuid */
+                userId: string;
+                name: string;
+                attempts: number;
+                avgScore: number;
+                passRatePct: number;
+                avgTimeMs?: number;
+                weakestLayer?: string;
+            }[];
+            categories: {
+                categoryId: string;
+                categoryName: string;
+                attempts: number;
+                avgScore: number;
+                passRatePct: number;
+                avgTimeMs?: number;
+            }[];
+            insights: components["schemas"]["Insight"][];
+        };
+        /** @description Вывод по типичным ошибкам группы с рекомендацией (v1.4) */
+        Insight: {
+            id: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            /** @description weak_field | missing_fact | grammar_pattern | slow_timing | weak_category | weak_layer | dialogue_pattern | student_at_risk | general (строка, не enum: значения пересекаются с Recommendation.kind) */
+            kind: string;
+            title: string;
+            /** @description что происходит + что сделать преподавателю */
+            body: string;
+            /** @description ключевая величина (доля %, балл, мс) */
+            metric?: number;
+            affectedStudents?: string[];
+            evidence?: string[];
+        };
+        Material: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description?: string;
+            category: string;
+            /** @description Markdown; только в GET /materials/{id} */
+            content?: string;
+            hasFile: boolean;
+            fileName?: string;
+            mimeType?: string;
+            /** Format: int64 */
+            sizeBytes?: number;
+            /** @description из поставки (не удаляется) */
+            system: boolean;
+            /** Format: uuid */
+            authorId?: string;
+            authorName?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LogEntry: {
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            level: "debug" | "info" | "warn" | "error";
+            message: string;
+            attrs?: {
+                [key: string]: unknown;
+            };
+        };
+        ScenarioBundle: {
+            /** @enum {string} */
+            format: "lct112.scenarios.v1";
+            /** Format: date-time */
+            exportedAt?: string;
+            scenarios: components["schemas"]["ScenarioBundleItem"][];
+        };
+        /** @description переносимое содержание сценария (без id, статусов и авторов) */
+        ScenarioBundleItem: {
+            title: string;
+            categoryId: string;
+            difficulty: components["schemas"]["Difficulty"];
+            /** @enum {string} */
+            mode: "cards" | "card_actions" | "both";
+            source?: components["schemas"]["ScenarioSource"];
+            callScript: components["schemas"]["CallScript"];
+            etalonCard?: components["schemas"]["IncidentCard"];
+            etalonDraft: components["schemas"]["IncidentCardDraft"];
+            scoring?: components["schemas"]["Scoring"];
+            requiredFields?: string[];
+            expectedActions?: components["schemas"]["ExpectedAction"][];
+            expectedDialogue?: components["schemas"]["ExpectedDialogue"];
+            notesForTeacher?: string;
+        };
+        ScenarioImportResult: {
+            created: {
+                index: number;
+                /** Format: uuid */
+                scenarioId: string;
+                title: string;
+            }[];
+            rejected: {
+                index: number;
+                title?: string;
+                message: string;
+            }[];
+        };
         /** @description Сообщение сервер -> преподаватель в /ws/lessons/{id}/monitor */
         MonitorMessage: {
             seq: number;
@@ -2107,6 +2458,7 @@ export interface components {
         lessonId: string;
         attemptId: string;
         serviceId: string;
+        materialId: string;
         /** @description v1.2: курсор следующей страницы — значение заголовка X-Next-Cursor предыдущего ответа (непрозрачная строка, не разбирать). Нет — первая страница. */
         cursor: string;
     };
@@ -4026,6 +4378,342 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description Копирование уже идёт */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    analyticsOverview: {
+        parameters: {
+            query?: {
+                lessonId?: string;
+                studentId?: string;
+                categoryId?: string;
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsOverview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMaterials: {
+        parameters: {
+            query?: {
+                category?: string;
+                /** @description поиск по названию/описанию */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK (без content — только метаданные) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Material"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMaterial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    title: string;
+                    description?: string;
+                    /** @description раздел: «Памятка АРМ-112», «Регламенты», «Аудио вызовов», … */
+                    category?: string;
+                    /** @description текст материала (Markdown) */
+                    content?: string;
+                    /** Format: binary */
+                    file?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Создан */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Material"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Файл больше 20 МБ (code=validation) */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getMaterial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                materialId: components["parameters"]["materialId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Material"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteMaterial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                materialId: components["parameters"]["materialId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Удалён */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Системный материал (из поставки) не удаляется */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    downloadMaterialFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                materialId: components["parameters"]["materialId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Файл */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listLogs: {
+        parameters: {
+            query?: {
+                /** @description минимальный уровень */
+                level?: "debug" | "info" | "warn" | "error";
+                /** @description подстрока в сообщении/атрибутах */
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    userCertificate: {
+        parameters: {
+            query?: {
+                /** @description часовой пояс IANA для даты */
+                tz?: string;
+            };
+            header?: never;
+            path: {
+                userId: components["parameters"]["userId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF (Content-Disposition attachment) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Нет оценённых попыток */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    exportScenarios: {
+        parameters: {
+            query?: {
+                /** @description uuid через запятую; нет — все утверждённые */
+                ids?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Пакет (Content-Disposition attachment) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScenarioBundle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    importScenarios: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScenarioBundle"];
+            };
+        };
+        responses: {
+            /** @description Результат импорта */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScenarioImportResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    attemptToScenario: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attemptId: components["parameters"]["attemptId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    title?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Создан */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scenario"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Попытка не оценена / не режим cards / сценарий уже создан (details.scenarioId) */
             409: {
                 headers: {
                     [name: string]: unknown;

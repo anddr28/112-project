@@ -13,6 +13,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"lct/gocore/internal/config"
+	"lct/gocore/internal/platform/logring"
 )
 
 // NewLogger — slog по конфигу (json в контейнере, text локально).
@@ -35,7 +36,9 @@ func NewLogger(cfg *config.Config) *slog.Logger {
 	} else {
 		h = slog.NewTextHandler(os.Stdout, opts)
 	}
-	return slog.New(h).With("svc", "go-core")
+	// Тройник в кольцо системного журнала (GET /admin/logs): info+ видны администратору
+	// из UI независимо от уровня stdout.
+	return slog.New(logring.NewHandler(h, logring.Default)).With("svc", "go-core")
 }
 
 // Migrate — goose по каталогу cfg.MigrationsDir. dir: up | down | status | version.

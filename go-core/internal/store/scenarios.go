@@ -116,6 +116,31 @@ const sqlListScenarios = scenarioColumns + `
  ORDER BY s.created_at DESC, s.id DESC
  LIMIT $7`
 
+// sqlGetScenarios — несколько сценариев одним запросом в порядке списка id (выгрузка пакета).
+const sqlGetScenarios = scenarioColumns + `
+ WHERE s.id = ANY($1::uuid[])
+ ORDER BY array_position($1::uuid[], s.id)`
+
+// GetScenarios — сценарии по списку id (одним запросом, в порядке ids; неизвестные пропущены).
+func GetScenarios(ctx context.Context, q pg.Querier, ids []uuid.UUID) ([]ScenarioRow, error) {
+	rows, err := q.Query(ctx, sqlGetScenarios, ids)
+	if err != nil {
+		return nil, fmt.Errorf("store: get scenarios: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ScenarioRow, 0, len(ids))
+	for rows.Next() {
+		out = append(out, ScenarioRow{})
+		if err := scanScenario(rows, &out[len(out)-1]); err != nil {
+			return nil, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: get scenarios: %w", err)
+	}
+	return out, nil
+}
+
 // GetScenario — сценарий по id (pgx.ErrNoRows, если нет).
 func GetScenario(ctx context.Context, q pg.Querier, id uuid.UUID) (*ScenarioRow, error) {
 	r := new(ScenarioRow)

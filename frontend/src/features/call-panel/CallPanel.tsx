@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api, hasErrorCode, isApiError } from '../../shared/api';
 import { cls } from '../../shared/utils/cls';
+import { speakRussian } from '../../shared/utils/speech';
 import { MAX_RECORDING_MS, micStateText, useRecorder, type Recording } from './useRecorder';
 import {
   speechFailureText, speechSupported, useSpeechRecognition, type SpeechFailure,
@@ -71,28 +72,15 @@ function turnKey(turn: DialogueTurnView): string {
 
 /**
  * Голос заявителя. Штатно это аудио ai-service (`AudioRef` из /media/tts);
- * пока его нет, реплику читает синтезатор браузера — он работает офлайн на
- * голосах ОС. Если русского голоса нет, остаётся текстовая расшифровка.
+ * пока его нет, реплику читает синтезатор браузера (`speakRussian`).
  */
-function speak(text: string): void {
-  const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
-  if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return;
-  const voice = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith('ru'));
-  if (!voice) return;
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.voice = voice;
-  u.lang = voice.lang;
-  synth.speak(u);
-}
-
 function playCaller(turn: DialogueTurnView, ttsEnabled: boolean): void {
   if (!ttsEnabled) return;
   if (turn.audio?.audioUrl) {
-    void new Audio(turn.audio.audioUrl).play().catch(() => speak(turn.text));
+    void new Audio(turn.audio.audioUrl).play().catch(() => speakRussian(turn.text));
     return;
   }
-  speak(turn.text);
+  speakRussian(turn.text);
 }
 
 /**

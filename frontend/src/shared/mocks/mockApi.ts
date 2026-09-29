@@ -27,18 +27,44 @@ import { suggestAddresses } from './fixtures/addresses';
 import { DEMO_ACCOUNTS } from './fixtures/users';
 import { FIELD_LABELS, emptyCard } from '../utils/card';
 import { uid } from '../utils/id';
+import { buildOverview, buildProgress, evaluatedCount } from './reporting';
+import { listAudit, listBackups, listLogs, listSettings, mockHealth, runBackup, updateSetting } from './admin';
+import { createMaterial, getMaterial, listMaterials, materialFileUrl, removeMaterial } from './materials';
+import { mockAttemptChannel, mockLessonMonitor } from './realtime';
+import { certificateHtml, exportBundle, importBundle, scenarioFromAttempt } from './scenarioTransfer';
 
 const SESSION_KEY = 'arm112.session';
 
 /** Единая формулировка отказа: и при входе, и при восстановлении сессии. */
 const BLOCKED_MESSAGE = 'Учётная запись заблокирована.';
 
+/**
+ * Сетевая задержка. Без сети (navigator.onLine = false — например, «Offline» в
+ * DevTools) запрос падает так же, как у httpApi: ошибкой без HTTP-статуса.
+ * Так в mock-режиме проверяется устойчивость к обрыву связи.
+ */
 function delay<T>(value: T, ms = 220): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+  return new Promise((resolve, reject) =>
+    setTimeout(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        reject(new ApiRequestError('internal', 'Нет связи с сервером. Проверьте подключение.'));
+        return;
+      }
+      resolve(value);
+    }, ms),
+  );
 }
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+/** Пользователь сессии с одной из ролей — иначе 403, как у сервера. */
+function requireRole(...roles: User['role'][]): User {
+  const user = sessionUser();
+  if (!user) throw new ApiRequestError('unauthorized', 'Сессия истекла — войдите снова', { status: 401 });
+  if (!roles.includes(user.role)) throw new ApiRequestError('forbidden', 'Недостаточно прав для этой операции', { status: 403 });
+  return user;
 }
 
 function clone<T>(value: T): T {
@@ -504,6 +530,30 @@ export const mockApi: Api = {
       const user = setUserBlocked(userId, blocked);
       return delay(clone(user), 220);
     },
+
+    async progress(userId) {
+      const actor = requireRole('teacher', 'student', 'admin');
+      if (actor.role === 'student' && actor.id !== userId) {
+        throw new ApiRequestError('forbidden', 'Прогресс другого обучающегося недоступен', { status: 403 });
+      }
+      if (!db.users.some((u) => u.id === userId && u.role === 'student')) {
+        throw new ApiRequestError('not_found', 'Обучающийся не найден', { status: 404 });
+      }
+      return delay(buildProgress(userId), 260);
+    },
+
+    /** PDF формирует сервер; без него — HTML той же формы, чтобы проверить сценарий выдачи. */
+    async certificate(userId) {
+      const actor = requireRole('teacher', 'student');
+      if (actor.role === 'student' && actor.id !== userId) {
+        throw new ApiRequestError('forbidden', 'Сертификат другого обучающегося недоступен', { status: 403 });
+      }
+      if (evaluatedCount(userId) === 0) {
+        throw new ApiRequestError('conflict', 'Сертификат выдаётся после первой оценённой карточки', { status: 409 });
+      }
+      const html = certificateHtml(buildProgress(userId));
+      return delay({ blob: new Blob([html], { type: 'text/html;charset=utf-8' }), fileName: 'Сертификат (демонстрационный).html' }, 400);
+    },
   },
 
   address: {
@@ -696,6 +746,29 @@ export const mockApi: Api = {
       persistScenario(s);
       return delay(withUsage(s), 250);
     },
+
+    // Синтеза речи без ai-service нет — отвечаем как сервер при недоступном TTS.
+    async ttsPreview(id) {
+      requireRole('teacher');
+      if (!scenarioById(id)) fail('Сценарий не найден');
+      await delay(null, 600);
+      throw new ApiRequestError('ai_unavailable', 'Синтез речи недоступен: сервис ИИ не подключён', { status: 503 });
+    },
+
+    async exportBundle(ids) {
+      requireRole('teacher', 'admin');
+      return delay(exportBundle(ids), 300);
+    },
+
+    async importBundle(bundle) {
+      const actor = requireRole('teacher', 'admin');
+      return delay(importBundle(bundle, actor), 500);
+    },
+
+    async fromAttempt(attemptId, title) {
+      const actor = requireRole('teacher');
+      return delay(withUsage(scenarioFromAttempt(attemptId, title, actor)), 350);
+    },
   },
 
   lessons: {
@@ -726,6 +799,27 @@ export const mockApi: Api = {
         throw new ApiRequestError('validation', 'В занятие можно включить только подтверждённые сценарии', {
           details: { scenarioIds: unapproved },
         });
+      }
+
+      /*
+       * v1.4: источник карточек пула. «Сформированные обучающимися» — только
+       * сценарии source=student, «сгенерированные системой» — все остальные.
+       */
+      const source = input.cardSource ?? 'mixed';
+      if (source !== 'mixed') {
+        const mismatched = input.scenarioIds.filter((id) => {
+          const own = scenarioById(id)?.source === 'student';
+          return source === 'student' ? !own : own;
+        });
+        if (mismatched.length > 0) {
+          throw new ApiRequestError(
+            'validation',
+            source === 'student'
+              ? 'В пул «карточки обучающихся» можно включить только сценарии из карточек обучающихся'
+              : 'В пул «сгенерированные системой» нельзя включать сценарии из карточек обучающихся',
+            { status: 422, details: { scenarioIds: mismatched } },
+          );
+        }
       }
 
       if (input.voice?.enabled) {
@@ -780,6 +874,7 @@ export const mockApi: Api = {
             passThreshold: input.passThreshold,
             allowReplay: input.allowReplay,
             voice,
+            cardSource: input.cardSource,
             // Вес разговора имеет смысл только при включённом голосе;
             // иначе его доля перераспределяется между остальными слоями.
             weights: normalizeWeights(
@@ -1329,6 +1424,66 @@ export const mockApi: Api = {
   reaction: {
     allowedNext: (current: ReactionStatus, serviceCode: string) =>
       delay(computeAllowedNext(current, serviceCode), 60),
+  },
+
+  analytics: {
+    async overview(filter) {
+      const actor = requireRole('teacher', 'admin');
+      if (filter.lessonId && !lessonById(filter.lessonId)) {
+        throw new ApiRequestError('not_found', 'Занятие не найдено', { status: 404 });
+      }
+      return delay(buildOverview(filter, actor.role === 'teacher' ? actor.id : undefined), 450);
+    },
+  },
+
+  materials: {
+    list: (f) => delay(listMaterials(f), 200),
+    get: (id) => delay(null, 150).then(() => getMaterial(id)),
+    async create(input) {
+      const actor = requireRole('teacher', 'admin');
+      const created = await createMaterial(input, actor);
+      return delay(created, 300);
+    },
+    async remove(id) {
+      const actor = requireRole('teacher', 'admin');
+      removeMaterial(id, actor);
+      return delay(undefined, 200);
+    },
+    fileUrl: (m) => materialFileUrl(m.id),
+  },
+
+  realtime: {
+    // Буфера пропущенных сообщений у mock нет: каждое подключение начинается со snapshot.
+    lessonMonitor: (lessonId, _since, handlers) => mockLessonMonitor(lessonId, handlers),
+    attempt: (attemptId, handlers) => mockAttemptChannel(attemptId, handlers),
+  },
+
+  admin: {
+    health: () => delay(null, 200).then(() => {
+      requireRole('admin');
+      return mockHealth();
+    }),
+    settings: () => delay(null, 180).then(() => {
+      requireRole('admin');
+      return listSettings();
+    }),
+    updateSetting: (key, value) => delay(null, 250).then(() => {
+      requireRole('admin');
+      return updateSetting(key, value);
+    }),
+    audit: (f) => delay(null, 220).then(() => {
+      requireRole('admin');
+      return listAudit(f);
+    }),
+    backups: () => delay(null, 180).then(() => {
+      requireRole('admin');
+      return listBackups();
+    }),
+    runBackup: () => delay(null, 300).then(() => runBackup(requireRole('admin').id)),
+    logs: (f) => delay(null, 200).then(() => {
+      requireRole('admin');
+      return listLogs(f);
+    }),
   },
 };
 
