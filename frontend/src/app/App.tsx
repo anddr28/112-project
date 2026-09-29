@@ -11,7 +11,8 @@ export default function App() {
   }, [restore]);
 
   return (
-    <BrowserRouter>
+    // basename — путь публикации из `base` Vite: «/» локально, «/112-project/» на GitHub Pages.
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AppRouter />
     </BrowserRouter>
   );
